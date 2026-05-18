@@ -1,0 +1,17 @@
+# 1. View all records in your audit findings:
+python run_query.py "SELECT * FROM audit_findings"
+
+# 2. Count the total number of findings in the database:
+python run_query.py "SELECT COUNT(*) FROM audit_findings"
+
+# 3. Show only High and Critical severity findings:
+python run_query.py "SELECT id, use_case_name, severity, control FROM audit_findings WHERE severity IN ('High', 'Critical')"
+
+# 4. View the most recently added findings first:
+python run_query.py "SELECT * FROM audit_findings ORDER BY created_at DESC LIMIT 5"
+
+# 5. Delete all records (if you want to clear the database for a fresh demo):
+python run_query.py "DELETE FROM audit_findings"
+
+# 6. FORCE LOCAL SQLITE: View all records directly from the local SQLite fallback database:
+python run_query.py --local "SELECT * FROM audit_findings"

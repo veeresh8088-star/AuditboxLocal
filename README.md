@@ -37,4 +37,6 @@ If the primary ShaktiDB server (VM) is not reachable, the AICyberAuditBox will a
 
 ---
 **Developed for CERT-In Samvaad 2026**
-#.\run_demo.bat
+## .\run_demo.bat
+
+## docker-compose up -d
