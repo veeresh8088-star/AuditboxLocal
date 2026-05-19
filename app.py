@@ -330,6 +330,60 @@ def scan_file_security(uploaded_file):
         
     return True, "Clean"
 
+def generate_ollama_findings(context, file_names_list, selected_sls, model_choice):
+    ollama_model = "qwen2.5:7b" if "Qwen" in model_choice else "llama3.1"
+    
+    # Build list of controls to check
+    controls_to_check = []
+    for k in selected_sls:
+        if k in DEMO_FINDINGS:
+            for f in DEMO_FINDINGS[k]:
+                controls_to_check.append(f)
+                
+    scanned_files_str = ", ".join(file_names_list) if file_names_list else "None"
+
+    prompt = f"""You are a strict Cybersecurity Auditor. Evaluate the following extracted evidence text against these potential controls/gaps.
+
+EVIDENCE TEXT:
+{context[:12000]}
+
+CONTROLS TO AUDIT:
+{json.dumps(controls_to_check, indent=2)}
+
+INSTRUCTIONS:
+1. Determine if the EVIDENCE TEXT provides sufficient proof to resolve each control.
+2. If evidence is present, add the control name to "resolved_list".
+3. If evidence is MISSING or INSUFFICIENT, add a finding object to "findings" using the exact structure from the CONTROLS list, but set "source_files" to "Checked in: {scanned_files_str} (Evidence missing or insufficient)".
+4. You MUST return ONLY valid JSON in this exact structure:
+{{
+  "resolved_list": ["Control A", "Control B"],
+  "findings": [
+    {{
+      "control": "...",
+      "severity": "...",
+      "finding": "...",
+      "recommendation": "...",
+      "source_files": "..."
+    }}
+  ]
+}}
+Do NOT wrap in markdown blocks like ```json. Return just the raw JSON object.
+"""
+
+    try:
+        r = requests.post("http://127.0.0.1:11434/api/generate",
+            json={"model": ollama_model, "prompt": prompt, "stream": False, "format": "json"}, timeout=120)
+        
+        if r.status_code == 200:
+            res = r.json().get("response", "{}")
+            data = json.loads(res)
+            return data.get("resolved_list", []), data.get("findings", [])
+    except Exception as e:
+        print(f"Ollama realtime finding error: {e}")
+        pass # Fallback to hardcoded logic if LLM fails
+        
+    return None, None
+
 def ai_chat_stream(system_ctx, user_msg, model_choice):
     # Professional Auditor Persona
     enhanced_sys = f"You are a Senior Cybersecurity Auditor with expertise in ISO 27001, NIST, and SOC 2. {system_ctx}"
@@ -558,67 +612,84 @@ if run:
         for s in range(1, 5):
             st.session_state.stage = s
             time.sleep(0.3)
-        # ── DYNAMIC GAP RESOLUTION ENGINE ──────────────────────────────────────
-        # For each finding, check which uploaded documents contain resolving evidence
-        resolved_mapping = {} # maps control -> list of file names
-        for control, keywords in GAP_RESOLUTION.items():
-            matching_files = []
-            for fname, ftext in file_texts.items():
-                if any(kw in ftext.lower() for kw in keywords):
-                    matching_files.append(fname)
-            if matching_files:
-                resolved_mapping[control] = matching_files
-
-        # Store count for sidebar indicator
-        st.session_state["resolved_count"] = len(resolved_mapping)
-        st.session_state["resolved_controls"] = set(resolved_mapping.keys())
-
+        # ── DYNAMIC GAP RESOLUTION ENGINE (VIA OLLAMA) ─────────────────────────
         all_findings = []
         resolved_list = []
-        
+        resolved_mapping = {}
         file_names_list = list(file_texts.keys())
         scanned_files_str = ", ".join(file_names_list) if file_names_list else "None"
         
-        for k, v in DEMO_FINDINGS.items():
-            if k == "CROSS_FILE":
-                if len(uploaded) >= 1:
-                    for f in v:
-                        f_copy = f.copy()
-                        f_copy["status"] = "Open"
-                        f_copy["comment"] = ""
-                        f_copy["editing"] = False
-                        
-                        # Populate file names in cross-file finding dynamically
-                        f_text = f_copy.get("finding", "")
-                        if "File 1" in f_text:
-                            file1_name = file_names_list[0]
-                            file2_name = file_names_list[1] if len(file_names_list) > 1 else file_names_list[0]
-                            f_text = f_text.replace("File 1", f"'{file1_name}'").replace("File 2", f"'{file2_name}'")
-                            f_copy["finding"] = f_text
-                            if len(file_names_list) > 1:
-                                f_copy["source_files"] = f"Correlated between: '{file1_name}' and '{file2_name}'"
-                            else:
-                                f_copy["source_files"] = f"Internal correlation in: '{file1_name}'"
-                        else:
-                            f_copy["source_files"] = f"Checked in: {scanned_files_str}"
-                            
-                        all_findings.append(f_copy)
-                continue
-            if k in selected_sls:
-                for finding in v:
-                    ctrl = finding.get("control", "")
-                    if ctrl in resolved_mapping:
-                        # Gap resolved — remove from report, track separately
-                        resolved_files = resolved_mapping[ctrl]
-                        resolved_list.append(ctrl)
-                    else:
-                        f_copy = finding.copy()
-                        f_copy["status"] = "Open"
-                        f_copy["comment"] = ""
-                        f_copy["editing"] = False
-                        f_copy["source_files"] = f"Checked in: {scanned_files_str} (Evidence missing)"
-                        all_findings.append(f_copy)
+        with st.spinner(f"🧠 AI Engine analyzing {len(file_texts)} documents in real-time..."):
+            llm_resolved, llm_findings = generate_ollama_findings(
+                st.session_state.context, 
+                file_names_list, 
+                selected_sls, 
+                ai_model
+            )
+            
+        if llm_resolved is not None and llm_findings is not None:
+            # Successfully used Ollama
+            resolved_list = llm_resolved
+            all_findings = llm_findings
+            for ctrl in resolved_list:
+                resolved_mapping[ctrl] = file_names_list
+                
+            # Still process cross-file hardcoded demos for visual effect if needed,
+            # or just rely entirely on LLM output. We will append the LLM output.
+            for finding in all_findings:
+                finding["status"] = "Open"
+                finding["comment"] = ""
+                finding["editing"] = False
+        else:
+            # Fallback to hardcoded mapping if Ollama is offline or fails
+            for control, keywords in GAP_RESOLUTION.items():
+                matching_files = []
+                for fname, ftext in file_texts.items():
+                    if any(kw in ftext.lower() for kw in keywords):
+                        matching_files.append(fname)
+                if matching_files:
+                    resolved_mapping[control] = matching_files
 
+            for k, v in DEMO_FINDINGS.items():
+                if k == "CROSS_FILE":
+                    if len(uploaded) >= 1:
+                        for f in v:
+                            f_copy = f.copy()
+                            f_copy["status"] = "Open"
+                            f_copy["comment"] = ""
+                            f_copy["editing"] = False
+                            
+                            f_text = f_copy.get("finding", "")
+                            if "File 1" in f_text:
+                                file1_name = file_names_list[0]
+                                file2_name = file_names_list[1] if len(file_names_list) > 1 else file_names_list[0]
+                                f_text = f_text.replace("File 1", f"'{file1_name}'").replace("File 2", f"'{file2_name}'")
+                                f_copy["finding"] = f_text
+                                if len(file_names_list) > 1:
+                                    f_copy["source_files"] = f"Correlated between: '{file1_name}' and '{file2_name}'"
+                                else:
+                                    f_copy["source_files"] = f"Internal correlation in: '{file1_name}'"
+                            else:
+                                f_copy["source_files"] = f"Checked in: {scanned_files_str}"
+                                
+                            all_findings.append(f_copy)
+                    continue
+                if k in selected_sls:
+                    for finding in v:
+                        ctrl = finding.get("control", "")
+                        if ctrl in resolved_mapping:
+                            resolved_files = resolved_mapping[ctrl]
+                            resolved_list.append(ctrl)
+                        else:
+                            f_copy = finding.copy()
+                            f_copy["status"] = "Open"
+                            f_copy["comment"] = ""
+                            f_copy["editing"] = False
+                            f_copy["source_files"] = f"Checked in: {scanned_files_str} (Evidence missing)"
+                            all_findings.append(f_copy)
+
+        st.session_state["resolved_count"] = len(resolved_mapping)
+        st.session_state["resolved_controls"] = set(resolved_mapping.keys())
         st.session_state["resolved_list"] = resolved_list
         st.session_state.findings = all_findings
         st.session_state.stage = 5
