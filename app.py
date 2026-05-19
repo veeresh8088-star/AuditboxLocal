@@ -396,40 +396,58 @@ with st.sidebar:
 
     # ── Recents toggle ────────────────────────────────────────────────────────
     sessions = get_all_chat_sessions()
-    if sessions:
-        if "recents_open" not in st.session_state:
-            st.session_state.recents_open = True
 
-        arrow = "▾" if st.session_state.recents_open else "▸"
-        if st.button(f"{arrow}  Recents", use_container_width=True, key="recents_toggle"):
-            st.session_state.recents_open = not st.session_state.recents_open
-            st.rerun()
+    if "recents_open" not in st.session_state:
+        st.session_state.recents_open = True
 
-        if st.session_state.recents_open:
-            for s in sessions:
-                title = s["session_title"] or "Untitled Chat"
-                display = title[:26] + "…" if len(title) > 26 else title
-                is_active = s["session_id"] == st.session_state.active_chat_id
+    arrow = "▾" if st.session_state.recents_open else "▸"
+    if st.button(f"{arrow}  Recents", use_container_width=True, key="recents_toggle"):
+        st.session_state.recents_open = not st.session_state.recents_open
+        st.rerun()
 
-                col_t, col_d = st.columns([6, 1])
-                with col_t:
-                    # Active session highlighted, others plain
-                    label = f"**{display}**" if is_active else display
-                    if st.button(label, key=f"ch_{s['session_id']}", use_container_width=True,
-                                 type="primary" if is_active else "secondary"):
-                        st.session_state.active_chat_id = s["session_id"]
-                        st.session_state.chat = get_chat_history(s["session_id"])
-                        st.session_state._last_loaded_chat_id = s["session_id"]
-                        st.rerun()
-                with col_d:
-                    if st.button("✕", key=f"dx_{s['session_id']}", use_container_width=True):
-                        clear_chat_session(s["session_id"])
-                        if is_active:
-                            new_id = uuid.uuid4().hex
-                            st.session_state.active_chat_id = new_id
-                            st.session_state.chat = []
-                            st.session_state._last_loaded_chat_id = new_id
-                        st.rerun()
+    if st.session_state.recents_open:
+        if not sessions:
+            st.markdown("<small style='color:#475569; padding-left:8px;'>No history yet</small>", unsafe_allow_html=True)
+        for s in sessions:
+            title = s["session_title"] or "Untitled Chat"
+            display = title[:26] + "…" if len(title) > 26 else title
+            is_active = s["session_id"] == st.session_state.active_chat_id
+
+            col_t, col_d = st.columns([6, 1])
+            with col_t:
+                label = f"**{display}**" if is_active else display
+                if st.button(label, key=f"ch_{s['session_id']}", use_container_width=True,
+                             type="primary" if is_active else "secondary"):
+                    st.session_state.active_chat_id = s["session_id"]
+                    # Load chat messages (excluding findings snapshots)
+                    all_msgs = get_chat_history(s["session_id"])
+                    st.session_state.chat = [m for m in all_msgs if m["role"] != "findings_snapshot"]
+                    st.session_state._last_loaded_chat_id = s["session_id"]
+                    # Restore findings snapshot if it exists
+                    snapshots = [m for m in all_msgs if m["role"] == "findings_snapshot"]
+                    if snapshots:
+                        try:
+                            snap = json.loads(snapshots[-1]["content"])
+                            st.session_state.findings = snap.get("findings", [])
+                            st.session_state.resolved_list = snap.get("resolved_list", [])
+                            st.session_state.stage = snap.get("stage", 5)
+                        except Exception:
+                            pass
+                    else:
+                        st.session_state.findings = []
+                        st.session_state.stage = 0
+                    st.rerun()
+            with col_d:
+                if st.button("✕", key=f"dx_{s['session_id']}", use_container_width=True):
+                    clear_chat_session(s["session_id"])
+                    if is_active:
+                        new_id = uuid.uuid4().hex
+                        st.session_state.active_chat_id = new_id
+                        st.session_state.chat = []
+                        st.session_state.findings = []
+                        st.session_state.stage = 0
+                        st.session_state._last_loaded_chat_id = new_id
+                    st.rerun()
 
     st.divider()
 
@@ -604,6 +622,19 @@ if run:
         st.session_state["resolved_list"] = resolved_list
         st.session_state.findings = all_findings
         st.session_state.stage = 5
+        
+        # Auto-save findings snapshot into the chat session DB so history can restore it
+        snapshot = json.dumps({
+            "findings": all_findings,
+            "resolved_list": resolved_list,
+            "stage": 5
+        })
+        save_chat_message(
+            st.session_state.active_chat_id,
+            f"Audit · {datetime.now().strftime('%d %b %H:%M')}",
+            "findings_snapshot",
+            snapshot
+        )
         st.rerun()
 
 # ── MAIN LAYOUT ───────────────────────────────────────────────────────────────
@@ -818,6 +849,8 @@ with st.container():
             st.info("💡 Upload and run analysis first for evidence-aware answers, or ask general cybersecurity questions.")
 
         for msg in st.session_state.chat:
+            if msg["role"] == "findings_snapshot":
+                continue  # internal snapshot — never show in chat UI
             if msg["role"] == "user":
                 st.markdown(f"<div style='text-align:right;font-size:11px;color:#64748b;margin-top:8px'>You</div><div class='chat-bubble-user'>{msg['content']}</div>", unsafe_allow_html=True)
             else:
