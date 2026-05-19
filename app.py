@@ -27,10 +27,10 @@ section[data-testid="stSidebar"] .stButton>button:hover { transform:translateY(-
 .stat-card { background:#1e293b; border:1px solid #334155; border-radius:12px;
     padding:20px; text-align:center; }
 .stat-num { font-size:2rem; font-weight:700; }
-.badge-critical { background:#450a0a; border-left:4px solid #ef4444; border-radius:8px; padding:16px; margin:8px 0; }
-.badge-high     { background:#431407; border-left:4px solid #f97316; border-radius:8px; padding:16px; margin:8px 0; }
-.badge-medium   { background:#422006; border-left:4px solid #eab308; border-radius:8px; padding:16px; margin:8px 0; }
-.badge-low      { background:#052e16; border-left:4px solid #22c55e; border-radius:8px; padding:16px; margin:8px 0; }
+.badge-critical { background:#1a0a0a; border:1px solid #ef4444; border-left:5px solid #ef4444; border-radius:8px; padding:16px; margin:8px 0; color:#f8fafc; }
+.badge-high     { background:#1a0d08; border:1px solid #f97316; border-left:5px solid #f97316; border-radius:8px; padding:16px; margin:8px 0; color:#f8fafc; }
+.badge-medium   { background:#1a1600; border:1px solid #eab308; border-left:5px solid #eab308; border-radius:8px; padding:16px; margin:8px 0; color:#f8fafc; }
+.badge-low      { background:#051a0d; border:1px solid #22c55e; border-left:5px solid #22c55e; border-radius:8px; padding:16px; margin:8px 0; color:#f8fafc; }
 .chat-bubble-user { background:#1e3a5f; border-radius:16px 16px 4px 16px; padding:12px 16px;
     margin:8px 0; margin-left:15%; color:#e2e8f0; }
 .chat-bubble-bot  { background:#1e293b; border:1px solid #334155; border-radius:16px 16px 16px 4px;
