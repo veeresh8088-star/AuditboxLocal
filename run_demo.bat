@@ -6,7 +6,7 @@ echo ==========================================
 
 echo.
 echo [1/3] Checking Ollama (AI Engine)...
-powershell -Command "try { $r = Invoke-WebRequest -Uri http://localhost:11434/api/tags -UseBasicParsing -TimeoutSec 2; if ($r.StatusCode -eq 200) { exit 0 } else { exit 1 } } catch { exit 1 }"
+python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:11434/', timeout=2)" >nul 2>&1
 if %errorlevel% neq 0 (
     echo [!] WARNING: Ollama is not running on port 11434.
     echo     The AI Assistant will be disabled.

@@ -11,11 +11,11 @@ set ANTHROPIC_API_KEY=sk-ant-local-1234567890abcdef
 echo Checking for claude.exe...
 if exist "C:\Users\HP\.local\bin\claude.exe" (
     echo [OK] Found at C:\Users\HP\.local\bin\claude.exe
-    "C:\Users\HP\.local\bin\claude.exe" --model llama3
+    "C:\Users\HP\.local\bin\claude.exe" --model llama3.1
 ) else (
     echo [ERROR] Could not find C:\Users\HP\.local\bin\claude.exe
     echo Attempting to run via NPX instead...
-    npx -y @anthropic-ai/claude-code --model llama3
+    npx -y @anthropic-ai/claude-code --model llama3.1
 )
 
 pause

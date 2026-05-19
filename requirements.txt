@@ -11,3 +11,4 @@ pywhatkit
 anthropic
 openpyxl
 python-docx
+python-pptx

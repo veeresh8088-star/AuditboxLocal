@@ -3,7 +3,7 @@ import streamlit as st
 import pandas as pd
 import requests
 import pdfplumber
-import time, json, hashlib
+import time, json, hashlib, uuid
 from datetime import datetime
 from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
@@ -47,33 +47,59 @@ div[data-testid="stDecoration"] { display:none; }
 
 # ── USE CASES ─────────────────────────────────────────────────────────────────
 USE_CASES = [
-    {"sl":1,"label":"License Agreement Validity","icon":"📄","use_case":"Check and summarize the validity of the license agreement","expected":"License Type, validity date, EOL/EOS status, Risk/Severity and Recommendation","format":"PDF","prompt_hint":"Summarize the license type, validity dates. Identify if EOL/EOS. Provide risk severity and recommendation."},
-    {"sl":2,"label":"Stale / Expired ISO Certificates","icon":"🏅","use_case":"Check the Stale/Expired ISO Certificates","expected":"Validate ISO/BCMS certifications, Risk/Severity and mitigation recommendation","format":"PDF","prompt_hint":"Check if ISO/BCMS certificate is expired or expiring. Provide risk and recommendation."},
-    {"sl":3,"label":"Incident Mgmt – Vendor Assessment","icon":"🔍","use_case":"Incident Management (A.5.24–A.5.28) – Vendor Security Assessment","expected":"Verify vendor security measures comply with ISO 27001. Identify gaps.","format":"PDF","prompt_hint":"Verify if vendor security measures comply with ISO 27001 A.5.24-A.5.28. List all gaps."},
-    {"sl":4,"label":"Incident Mgmt – Regular Reviews","icon":"🔄","use_case":"Incident Management (A.5.24–A.5.28) – Conduct Regular Reviews","expected":"Verify if policies are regularly reviewed and updated. Identify stale policies.","format":"PDF","prompt_hint":"Check if incident response policy is regularly reviewed. Identify outdated content."},
-    {"sl":5,"label":"Incident Mgmt – Training & Awareness","icon":"🎓","use_case":"Incident Management (A.5.24–A.5.28) – Training and Awareness","expected":"Verify training and awareness programs are in place.","format":"PDF","prompt_hint":"Check if document mentions employee training and awareness programs. List gaps."},
-    {"sl":6,"label":"Access Control Policy (A.5.14–A.5.18)","icon":"🔐","use_case":"Access Control Policy – Grant, Review, Revoke access","expected":"Verify documented access control policy covering full access lifecycle.","format":"PDF","prompt_hint":"Verify if a documented access control policy exists covering granting, reviewing, and revoking access."},
-    {"sl":7,"label":"Role-Based Access Control (RBAC)","icon":"👥","use_case":"RBAC – Permissions assigned to Roles, not individuals","expected":"Verify RBAC implementation. Access should be role-based.","format":"PDF","prompt_hint":"Verify if access is managed through roles rather than individual users. Identify RBAC gaps."},
-    {"sl":8,"label":"Multi-Factor Authentication (MFA)","icon":"🔑","use_case":"MFA – Enforced for all external access via VPN / cloud","expected":"Confirm MFA enforcement, password complexity and rotation requirements.","format":"PDF","prompt_hint":"Verify MFA enforcement for external access, VPN, cloud. Check password complexity and rotation policy."},
-    {"sl":9,"label":"Privileged Access Management","icon":"⚡","use_case":"Privileged Access – Time-limited and monitored","expected":"Verify privileged access is restricted, time-limited, and monitored.","format":"PDF","prompt_hint":"Verify if privileged access is time-limited, restricted to legitimate need, and under enhanced monitoring."},
-    {"sl":10,"label":"Access Reviews & Orphaned Accounts","icon":"🔎","use_case":"Access Reviews – Periodic review and orphaned account management","expected":"Verify periodic access reviews and prompt revocation. Orphaned accounts managed.","format":"PDF","prompt_hint":"Check if access rights are reviewed periodically, revoked promptly, and orphaned accounts are managed."},
-    {"sl":11,"label":"Media Handling – EWaste Certificate","icon":"♻️","use_case":"Third-party EWaste disposal agreement – Media Handling (A.7.10)","expected":"Verify the validity of the EWaste Agreement certificate","format":"DOC","prompt_hint":"Verify the validity date and terms of the EWaste disposal agreement. Check if current and compliant."},
+    # --- ISO 27001 ---
+    {"sl":1,"standard":"ISO 27001","label":"Access Control Policy (A.5.15)","icon":"🔐","use_case":"Access Control Policy – Grant, Review, Revoke access","expected":"Verify documented access control policy covering full access lifecycle.","format":"PDF","prompt_hint":"Verify if a documented access control policy exists covering granting, reviewing, and revoking access."},
+    {"sl":2,"standard":"ISO 27001","label":"Role-Based Access Control (RBAC)","icon":"👥","use_case":"RBAC – Permissions assigned to Roles, not individuals","expected":"Verify RBAC implementation. Access should be role-based.","format":"PDF","prompt_hint":"Verify if access is managed through roles rather than individual users. Identify RBAC gaps."},
+    {"sl":3,"standard":"ISO 27001","label":"Multi-Factor Authentication (MFA)","icon":"🔑","use_case":"MFA – Enforced for all external access via VPN / cloud","expected":"Confirm MFA enforcement, password complexity and rotation requirements.","format":"PDF","prompt_hint":"Verify MFA enforcement for external access, VPN, cloud. Check password complexity and rotation policy."},
+    {"sl":4,"standard":"ISO 27001","label":"Privileged Access Management","icon":"⚡","use_case":"Privileged Access – Time-limited and monitored","expected":"Verify privileged access is restricted, time-limited, and monitored.","format":"PDF","prompt_hint":"Verify if privileged access is time-limited, restricted to legitimate need, and under enhanced monitoring."},
+    {"sl":5,"standard":"ISO 27001","label":"Access Reviews & Orphaned Accounts","icon":"🔎","use_case":"Access Reviews – Periodic review and orphaned account management","expected":"Verify periodic access reviews and prompt revocation. Orphaned accounts managed.","format":"PDF","prompt_hint":"Check if access rights are reviewed periodically, revoked promptly, and orphaned accounts are managed."},
+    {"sl":6,"standard":"ISO 27001","label":"Incident Mgmt – Vendor Assessment","icon":"🔍","use_case":"Incident Management (A.5.24) – Vendor Security Assessment","expected":"Verify vendor security measures comply with ISO 27001. Identify gaps.","format":"PDF","prompt_hint":"Verify if vendor security measures comply with ISO 27001 A.5.24-A.5.28. List all gaps."},
+    {"sl":7,"standard":"ISO 27001","label":"Incident Mgmt – Policy Review","icon":"🔄","use_case":"Incident Management (A.5.28) – Conduct Regular Reviews","expected":"Verify if policies are regularly reviewed and updated. Identify stale policies.","format":"PDF","prompt_hint":"Check if incident response policy is regularly reviewed. Identify outdated content."},
+    
+    # --- DPDP / GDPR ---
+    {"sl":8,"standard":"DPDP / GDPR","label":"Consent Management & Notice","icon":"📝","use_case":"Verify Consent mechanisms and Privacy Notice transparency","expected":"Confirm clear, granular, revocable consent notice complying with DPDP/GDPR.","format":"PDF","prompt_hint":"Check privacy policy and notice for consent clarity, purpose limitation, and DPO details."},
+    {"sl":9,"standard":"DPDP / GDPR","label":"Data Protection Officer (DPO)","icon":"👔","use_case":"Verify appointment of DPO and contact availability","expected":"Confirm DPO details are published and contact details accessible.","format":"PDF","prompt_hint":"Search for Data Protection Officer (DPO) designation and contact email in policies."},
+    {"sl":10,"standard":"DPDP / GDPR","label":"Data Subject Rights (DSR/DSAR)","icon":"👤","use_case":"Verify procedures for handling DSAR requests","expected":"Confirm response SLA for data deletion, access, and correction requests.","format":"PDF","prompt_hint":"Verify DSAR processing SLA, data deletion, correction procedures."},
+
+    # --- SOC 2 ---
+    {"sl":11,"standard":"SOC 2","label":"Security: Firewall & Encryption","icon":"🧱","use_case":"CC6.6, CC6.7 - Encryption in transit and rest","expected":"Verify firewall controls and SSL/TLS and AES encryption enforcement.","format":"PDF","prompt_hint":"Check encryption protocols in transit (TLS 1.2+) and at rest (AES-256)."},
+    {"sl":12,"standard":"SOC 2","label":"Availability: Backup & Recovery","icon":"💾","use_case":"CC7.5 - Backup restoration and disaster recovery planning","expected":"Verify automated backups and disaster recovery runbook availability.","format":"PDF","prompt_hint":"Verify daily automated backups, offsite retention, and DR testing plan."},
+
+    # --- BCMS ---
+    {"sl":13,"standard":"BCMS (Business Continuity)","label":"BCMS Continuity & ISO Certificates","icon":"🏅","use_case":"Check the Stale/Expired ISO Certificates","expected":"Validate ISO/BCMS certifications, Risk/Severity and mitigation recommendation","format":"PDF","prompt_hint":"Check if ISO/BCMS certificate is expired or expiring. Provide risk and recommendation."},
+    {"sl":14,"standard":"BCMS (Business Continuity)","label":"BCP Drill & Test Results","icon":"🏃‍♂️","use_case":"Verify annual BCP testing and drill execution","expected":"Verify BCP drill results and RTO/RPO performance verification.","format":"PDF","prompt_hint":"Search for Business Continuity Plan (BCP) testing dates and results inside logs."},
+
+    # --- X-BOM ---
+    {"sl":15,"standard":"X-BOM (Software Bill of Materials)","label":"License Agreement Validity","icon":"📄","use_case":"Check and summarize the validity of the license agreement","expected":"License Type, validity date, EOL/EOS status, Risk/Severity and recommendation","format":"PDF","prompt_hint":"Summarize the license type, validity dates. Identify if EOL/EOS. Provide risk severity and recommendation."},
+    {"sl":16,"standard":"X-BOM (Software Bill of Materials)","label":"Third-party Disposal (Media A.7.10)","icon":"♻️","use_case":"Third-party EWaste disposal agreement – Media Handling (A.7.10)","expected":"Verify the validity of the EWaste Agreement certificate","format":"DOC","prompt_hint":"Verify the validity date and terms of the EWaste disposal agreement. Check if current and compliant."}
 ]
 
 DEMO_FINDINGS = {
-    1:[{"severity":"CRITICAL","control":"Asset Mgmt / License","finding":"License expired on 2016-04-22 — 10 years ago. EOL confirmed with no vendor support.","recommendation":"Immediately replace or renew PJSIP software license to mitigate legal and security risk."},
-       {"severity":"HIGH","control":"Risk Management","finding":"EOL software has no security patches. Active vulnerabilities unmitigated.","recommendation":"Migrate to a supported VoIP stack or negotiate a new commercial agreement."}],
-    2:[{"severity":"CRITICAL","control":"ISO 27001 Clause 9.1","finding":"ISO Certificate expiry date has passed. Certificate is no longer valid.","recommendation":"Initiate recertification audit immediately through an accredited body."},
-       {"severity":"HIGH","control":"BCMS Continuity","finding":"No evidence of BCP testing in the last 12 months.","recommendation":"Conduct a BCP drill and document results before next audit."}],
-    3:[{"severity":"HIGH","control":"ISO 27001 A.5.24","finding":"Incident Response Plan lacks vendor-specific security assessment clauses.","recommendation":"Add vendor security assessment section aligned with ISO 27001 A.5.24–A.5.28."}],
-    4:[{"severity":"MEDIUM","control":"ISO 27001 A.5.28","finding":"Policy document last reviewed in 2021. No annual review evidence found.","recommendation":"Establish a documented annual review cycle with CISO sign-off."}],
-    5:[{"severity":"HIGH","control":"ISO 27001 A.6.3","finding":"No training schedule or awareness program referenced in the incident policy.","recommendation":"Add mandatory annual security training requirement to the policy."}],
-    6:[{"severity":"CRITICAL","control":"ISO 27001 A.5.15","finding":"No documented access control policy found in uploaded evidence.","recommendation":"Create and publish a formal Access Control Policy covering grant/review/revoke lifecycle."}],
-    7:[{"severity":"HIGH","control":"ISO 27001 A.5.15 RBAC","finding":"Access granted on individual basis. No role-based model documented.","recommendation":"Implement RBAC model and document role definitions in the policy."}],
-    8:[{"severity":"CRITICAL","control":"ISO 27001 A.8.5 / NIST IA-2","finding":"No MFA policy for VPN or cloud external access found in evidence.","recommendation":"Enforce MFA for all external access. Document password complexity and 90-day rotation."}],
-    9:[{"severity":"HIGH","control":"ISO 27001 A.8.2","finding":"No time-limiting or enhanced monitoring of privileged accounts documented.","recommendation":"Implement Just-In-Time (JIT) privileged access with PAM tool logging and automated expiry."}],
-    10:[{"severity":"HIGH","control":"ISO 27001 A.5.18","finding":"No evidence of periodic access reviews or orphaned account removal process.","recommendation":"Implement quarterly access review process with documented approvals."}],
-    11:[{"severity":"CRITICAL","control":"ISO 27001 A.7.10","finding":"EWaste Agreement Certificate is expired or not present in uploaded document.","recommendation":"Renew the third-party EWaste disposal agreement certificate immediately."}],
+    1: [{"severity":"CRITICAL","control":"ISO 27001 A.5.15","finding":"No documented access control policy found in uploaded evidence.","recommendation":"Create and publish a formal Access Control Policy covering grant/review/revoke lifecycle."}],
+    2: [{"severity":"HIGH","control":"ISO 27001 A.5.15 RBAC","finding":"Access granted on individual basis. No role-based model documented.","recommendation":"Implement RBAC model and document role definitions in the policy."}],
+    3: [{"severity":"CRITICAL","control":"ISO 27001 A.8.5 / NIST IA-2","finding":"No MFA policy for VPN or cloud external access found in evidence.","recommendation":"Enforce MFA for all external access. Document password complexity and 90-day rotation."}],
+    4: [{"severity":"HIGH","control":"ISO 27001 A.8.2","finding":"No time-limiting or enhanced monitoring of privileged accounts documented.","recommendation":"Implement Just-In-Time (JIT) privileged access with PAM tool logging and automated expiry."}],
+    5: [{"severity":"HIGH","control":"ISO 27001 A.5.18","finding":"No evidence of periodic access reviews or orphaned account removal process.","recommendation":"Implement quarterly access review process with documented approvals."}],
+    6: [{"severity":"HIGH","control":"ISO 27001 A.5.24","finding":"Incident Response Plan lacks vendor-specific security assessment clauses.","recommendation":"Add vendor security assessment section aligned with ISO 27001 A.5.24–A.5.28."}],
+    7: [{"severity":"MEDIUM","control":"ISO 27001 A.5.28","finding":"Policy document last reviewed in 2021. No annual review evidence found.","recommendation":"Establish a documented annual review cycle with CISO sign-off."}],
+    
+    # DPDP / GDPR
+    8: [{"severity":"CRITICAL","control":"DPDP Sec 6 / GDPR Art 7","finding":"Privacy notice lack granular consent options. Pre-checked boxes found for marketing.","recommendation":"Implement explicit, opt-in consent and uncheck marketing boxes by default."}],
+    9: [{"severity":"HIGH","control":"DPDP Sec 10 / GDPR Art 37","finding":"DPO designation details are missing from the public privacy policy document.","recommendation":"Publish Data Protection Officer name, email, and postal address in the privacy notice."}],
+    10: [{"severity":"HIGH","control":"DPDP Sec 12 / GDPR Art 15","finding":"DSAR policy does not specify statutory response timeframe (30 days for GDPR).","recommendation":"Update DSAR procedure to guarantee responses within 30 days and document DSR verification process."}],
+    
+    # SOC 2
+    11: [{"severity":"CRITICAL","control":"SOC 2 CC6.6 / CC6.7","finding":"Production data transmitted over HTTP (unencrypted) in internal API endpoints.","recommendation":"Enforce HTTPS (TLS 1.3) across all internal microservices and disable SSLv3/TLS1.0."}],
+    12: [{"severity":"HIGH","control":"SOC 2 CC7.5","finding":"DR Plan is present, but recovery restoration drills have not been performed or verified in 2025.","recommendation":"Schedule and execute a mock database recovery drill, and document the actual RTO/RPO achieved."}],
+    
+    # BCMS
+    13: [{"severity":"CRITICAL","control":"ISO 22301 Clause 9.1","finding":"ISO/BCMS Certificate expired on 2026-03-15. Certificate is no longer valid.","recommendation":"Initiate recertification audit immediately through an accredited body."}],
+    14: [{"severity":"HIGH","control":"BCMS Continuity","finding":"No evidence of BCP testing or simulation drills in the last 12 months.","recommendation":"Conduct a BCP drill and document results before next audit."}],
+    
+    # X-BOM
+    15: [{"severity":"CRITICAL","control":"Asset Mgmt / License","finding":"License expired on 2016-04-22 — 10 years ago. EOL confirmed with no vendor support.","recommendation":"Immediately replace or renew PJSIP software license to mitigate legal and security risk."}],
+    16: [{"severity":"CRITICAL","control":"ISO 27001 A.7.10","finding":"EWaste Agreement Certificate is expired or not present in uploaded document.","recommendation":"Renew the third-party EWaste disposal agreement certificate immediately."}],
+    
     "CROSS_FILE": [
         {"severity":"CRITICAL","control":"Cross-Document Correlation","finding":"Policy PDF (File 1) mandates 90-day password rotation, but Evidence Certificate (File 2) shows rotation set to 180 days.","recommendation":"Sync the actual system settings with the written policy document."},
         {"severity":"HIGH","control":"Cross-Document Correlation","finding":"Incident Plan (File 1) lists an external vendor for forensics, but the vendor contract (File 2) has been expired for 6 months.","recommendation":"Renew the vendor contract or update the Incident Plan with a new forensic partner."}
@@ -82,19 +108,22 @@ DEMO_FINDINGS = {
 
 # Resolution keywords: if any of these appear in uploaded content, the gap is resolved
 GAP_RESOLUTION = {
-    "Asset Mgmt / License":       ["license renewed", "new license", "valid license", "commercial agreement", "license valid until"],
-    "Risk Management":             ["vulnerability patched", "eol migration", "upgrade completed", "new vendor"],
-    "ISO 27001 Clause 9.1":        ["iso certified", "certificate valid", "certification active", "audit passed", "recertified"],
-    "BCMS Continuity":             ["bcp test", "drill conducted", "recovery test", "continuity test", "rto rpo"],
-    "ISO 27001 A.5.24":            ["vendor assessment", "vendor security", "third party assessment", "supplier review"],
-    "ISO 27001 A.5.28":            ["annual review", "policy reviewed 202", "reviewed and approved", "ciso sign"],
-    "ISO 27001 A.6.3":             ["security training", "awareness training", "training completed", "training schedule"],
-    "ISO 27001 A.5.15":            ["access control policy", "grant review revoke", "access policy document"],
-    "ISO 27001 A.5.15 RBAC":       ["role based", "rbac", "role assignment", "roles defined", "role-based access"],
-    "ISO 27001 A.8.5 / NIST IA-2":["mfa enabled", "multi-factor", "two-factor", "2fa", "authenticator app", "otp"],
-    "ISO 27001 A.8.2":             ["privileged access", "pam tool", "just-in-time", "jit access", "time-limited access"],
-    "ISO 27001 A.5.18":            ["access review completed", "quarterly review", "orphaned account removed", "account audit"],
-    "ISO 27001 A.7.10":            ["e-waste", "ewaste", "disposal certificate", "media disposal", "certificate of destruction", "it asset disposal", "waste agreement"],
+    "ISO 27001 A.5.15":            ["access control policy", "grant review revoke", "access policy document", "access control", "user access", "authorization policy"],
+    "ISO 27001 A.5.15 RBAC":       ["role based", "rbac", "role assignment", "roles defined", "role-based access", "role-based"],
+    "ISO 27001 A.8.5 / NIST IA-2":["mfa enabled", "multi-factor", "two-factor", "2fa", "authenticator app", "otp", "mfa", "2fa", "authenticator"],
+    "ISO 27001 A.8.2":             ["privileged access", "pam tool", "just-in-time", "jit access", "time-limited access", "pam", "jit"],
+    "ISO 27001 A.5.18":            ["access review completed", "quarterly review", "orphaned account removed", "account audit", "access review", "user review"],
+    "ISO 27001 A.5.24":            ["vendor assessment", "vendor security", "third party assessment", "supplier review", "vendor", "third-party", "supplier"],
+    "ISO 27001 A.5.28":            ["annual review", "policy reviewed 202", "reviewed and approved", "ciso sign", "annual review", "approved by ciso"],
+    "DPDP Sec 6 / GDPR Art 7":     ["opt-in consent", "granular consent", "consent notice", "explicit consent", "consent form", "opt-in"],
+    "DPDP Sec 10 / GDPR Art 37":   ["dpo email", "appointed dpo", "dpo details", "data protection officer", "dpo"],
+    "DPDP Sec 12 / GDPR Art 15":   ["dsar SLA", "dsar response", "data subject rights", "30 days SLA", "dsar"],
+    "SOC 2 CC6.6 / CC6.7":         ["tls 1.2", "tls 1.3", "https enforced", "aes-256", "encryption in transit", "tls", "https", "ssl", "encryption"],
+    "SOC 2 CC7.5":                 ["dr test", "restore verify", "disaster recovery test", "backup test", "dr test", "disaster recovery", "backup"],
+    "ISO 22301 Clause 9.1":        ["iso certified", "certificate valid", "certification active", "audit passed", "recertified", "iso certification", "certificate"],
+    "BCMS Continuity":             ["bcp test", "drill conducted", "recovery test", "continuity test", "rto rpo", "bcp", "business continuity"],
+    "Asset Mgmt / License":        ["license renewed", "new license", "valid license", "commercial agreement", "license valid until", "software license"],
+    "ISO 27001 A.7.10":            ["e-waste", "ewaste", "disposal certificate", "media disposal", "certificate of destruction", "it asset disposal", "waste agreement", "ewaste", "e-waste", "disposal"],
 }
 
 # ── DATABASE ──────────────────────────────────────────────────────────────────
@@ -108,6 +137,18 @@ class AuditFinding(Base):
     control        = Column(String(200))
     finding        = Column(Text)
     recommendation = Column(Text)
+    status         = Column(String(50), default="Open")
+    comment        = Column(Text, default="")
+    source_files   = Column(Text, default="All uploaded documents")
+    created_at     = Column(DateTime, default=datetime.utcnow)
+
+class ChatMessage(Base):
+    __tablename__ = "chat_messages"
+    id             = Column(Integer, primary_key=True, autoincrement=True)
+    session_id     = Column(String(100))
+    session_title  = Column(String(300))
+    role           = Column(String(50))
+    content        = Column(Text)
     created_at     = Column(DateTime, default=datetime.utcnow)
 
 @st.cache_resource
@@ -119,7 +160,7 @@ def init_db():
         
         # Self-healing: Check if the schema is up to date, if not, reset the table
         try:
-            with eng.connect() as c: c.execute(text("SELECT use_case_sl FROM audit_findings LIMIT 1"))
+            with eng.connect() as c: c.execute(text("SELECT source_files FROM audit_findings LIMIT 1"))
         except:
             # Table might not exist or has an old schema, drop and recreate
             from sqlalchemy import MetaData
@@ -136,7 +177,7 @@ def init_db():
         
         # Self-healing for Local DB as well
         try:
-            with eng.connect() as c: c.execute(text("SELECT use_case_sl FROM audit_findings LIMIT 1"))
+            with eng.connect() as c: c.execute(text("SELECT source_files FROM audit_findings LIMIT 1"))
         except:
             from sqlalchemy import MetaData
             meta = MetaData()
@@ -158,7 +199,9 @@ def save_findings(uc, findings):
     for f in findings:
         db.add(AuditFinding(use_case_sl=uc["sl"], use_case_name=uc_name[:290],
             severity=f.get("severity",""), control=f.get("control",""),
-            finding=f.get("finding",""), recommendation=f.get("recommendation","")))
+            finding=f.get("finding",""), recommendation=f.get("recommendation",""),
+            status=f.get("status","Open"), comment=f.get("comment",""),
+            source_files=f.get("source_files","")))
     db.commit(); db.close()
 
 def get_all_findings():
@@ -167,12 +210,90 @@ def get_all_findings():
     rows = db.query(AuditFinding).order_by(AuditFinding.created_at.desc()).all()
     db.close(); return rows
 
+def save_chat_message(session_id, session_title, role, content):
+    Session = sessionmaker(bind=engine)
+    db = Session()
+    db.query(ChatMessage).filter(ChatMessage.session_id == session_id).update({ChatMessage.session_title: session_title})
+    db.add(ChatMessage(session_id=session_id, session_title=session_title, role=role, content=content))
+    db.commit()
+    db.close()
+
+def get_chat_history(session_id):
+    Session = sessionmaker(bind=engine)
+    db = Session()
+    msgs = db.query(ChatMessage).filter(ChatMessage.session_id == session_id).order_by(ChatMessage.created_at.asc()).all()
+    db.close()
+    return [{"role": m.role, "content": m.content} for m in msgs]
+
+def get_all_chat_sessions():
+    Session = sessionmaker(bind=engine)
+    db = Session()
+    from sqlalchemy import func
+    sub = db.query(
+        ChatMessage.session_id,
+        ChatMessage.session_title,
+        func.max(ChatMessage.created_at).label("last_msg")
+    ).group_by(ChatMessage.session_id, ChatMessage.session_title).subquery()
+    rows = db.query(sub.c.session_id, sub.c.session_title).order_by(sub.c.last_msg.desc()).all()
+    db.close()
+    return [{"session_id": r.session_id, "session_title": r.session_title} for r in rows]
+
+def clear_chat_session(session_id):
+    Session = sessionmaker(bind=engine)
+    db = Session()
+    db.query(ChatMessage).filter(ChatMessage.session_id == session_id).delete()
+    db.commit()
+    db.close()
+
 def extract_text(f):
-    if f.name.lower().endswith(".pdf"):
+    name_lower = f.name.lower()
+    if name_lower.endswith(".pdf"):
         with pdfplumber.open(f) as pdf:
             return "\n".join(p.extract_text() or "" for p in pdf.pages)
-    doc = Document(f)
-    return "\n".join(p.text for p in doc.paragraphs)
+    elif name_lower.endswith((".xlsx", ".xls")):
+        try:
+            excel_data = pd.read_excel(f, sheet_name=None)
+            sheets_text = []
+            for sheet_name, df in excel_data.items():
+                sheets_text.append(f"--- Sheet: {sheet_name} ---\n" + df.to_string(index=False))
+            return "\n\n".join(sheets_text)
+        except Exception as e:
+            return f"[Error parsing Excel file {f.name}: {e}]"
+    elif name_lower.endswith(".csv"):
+        try:
+            df = pd.read_csv(f)
+            return df.to_string(index=False)
+        except Exception as e:
+            return f"[Error parsing CSV file {f.name}: {e}]"
+    elif name_lower.endswith((".pptx", ".ppt")):
+        try:
+            from pptx import Presentation
+            prs = Presentation(f)
+            text_runs = []
+            for slide_num, slide in enumerate(prs.slides, 1):
+                text_runs.append(f"--- Slide {slide_num} ---")
+                for shape in slide.shapes:
+                    if hasattr(shape, "text") and shape.text.strip():
+                        text_runs.append(shape.text.strip())
+                    if shape.has_table:
+                        for row in shape.table.rows:
+                            row_text = [cell.text.strip() for cell in row.cells if cell.text.strip()]
+                            if row_text:
+                                text_runs.append(" | ".join(row_text))
+            return "\n".join(text_runs)
+        except Exception as e:
+            return f"[Error parsing PowerPoint file {f.name}: {e}]"
+    elif name_lower.endswith(".txt"):
+        try:
+            return f.read().decode("utf-8", errors="ignore")
+        except Exception as e:
+            return f"[Error parsing text file {f.name}: {e}]"
+    else:
+        try:
+            doc = Document(f)
+            return "\n".join(p.text for p in doc.paragraphs)
+        except Exception as e:
+            return f"[Error parsing Word file {f.name}: {e}]"
 
 def scan_file_security(uploaded_file):
     bytes_data = uploaded_file.getvalue()
@@ -193,21 +314,44 @@ def scan_file_security(uploaded_file):
         
     return True, "Clean"
 
-def ollama_chat(system_ctx, user_msg):
-    # Professional Auditor Persona (Claude-style)
+def ai_chat_stream(system_ctx, user_msg, model_choice):
+    # Professional Auditor Persona
     enhanced_sys = f"You are a Senior Cybersecurity Auditor with expertise in ISO 27001, NIST, and SOC 2. {system_ctx}"
     prompt = f"{enhanced_sys}\n\nUser: {user_msg}\n\nAI Auditor:"
+    
+    # Map UI selection to Ollama model names
+    if "Qwen" in model_choice:
+        ollama_model = "qwen2.5:7b"
+    else:
+        ollama_model = "llama3.1"
+        
     try:
-        # Switching to Llama 3 for Claude-level reasoning
-        r = requests.post("http://localhost:11434/api/generate",
-            json={"model":"llama3","prompt":prompt,"stream":False}, timeout=90)
-        return r.json().get("response","")
+        r = requests.post("http://127.0.0.1:11434/api/generate",
+            json={"model": ollama_model, "prompt": prompt, "stream": True}, stream=True, timeout=90)
+            
+        if r.status_code != 200:
+            try:
+                err = r.json().get("error", r.text)
+            except:
+                err = r.text
+            yield f"⚠️ Ollama Error: {err}. Please make sure you have downloaded the model using pull_models.bat!"
+            return
+
+        for line in r.iter_lines():
+            if line:
+                chunk = json.loads(line)
+                yield chunk.get("response", "")
     except Exception as e:
-        return f"⚠️ Ollama not responding: {e}"
+        yield f"⚠️ Offline Engine not responding: {e}"
 
 # ── SESSION STATE ─────────────────────────────────────────────────────────────
+if "active_chat_id" not in st.session_state:
+    st.session_state.active_chat_id = uuid.uuid4().hex
+
 for k,v in [("stage",0),("context",""),("findings",[]),("chat",[]),("sel_uc",0)]:
     if k not in st.session_state: st.session_state[k] = v
+
+st.session_state.chat = get_chat_history(st.session_state.active_chat_id)
 
 uc = USE_CASES[st.session_state.sel_uc]
 
@@ -218,9 +362,105 @@ with st.sidebar:
     st.markdown(f"<small style='color:#22c55e'>● {db_label} Connected</small>", unsafe_allow_html=True)
     st.divider()
 
+    st.markdown("**💬 Chat History**")
+    if st.button("➕ New Chat", use_container_width=True):
+        st.session_state.active_chat_id = uuid.uuid4().hex
+        st.session_state.update({
+            "stage": 0,
+            "context": "",
+            "findings": [],
+            "chat": [],
+            "resolved_count": None,
+            "resolved_controls": set(),
+            "resolved_list": [],
+            "ewaste_resolved": None
+        })
+        st.rerun()
+
+    sessions = get_all_chat_sessions()
+    if sessions:
+        st.markdown("<div style='max-height: 220px; overflow-y: auto; padding-right: 5px; margin-bottom: 10px;'>", unsafe_allow_html=True)
+        for s in sessions:
+            title = s["session_title"] or "Untitled Chat"
+            if len(title) > 28:
+                title = title[:25] + "..."
+            
+            is_active = s["session_id"] == st.session_state.active_chat_id
+            
+            col_chat, col_del = st.columns([5, 1.2])
+            with col_chat:
+                btn_label = f"✨ {title}" if is_active else f"💬 {title}"
+                if st.button(btn_label, key=f"chat_btn_{s['session_id']}", use_container_width=True, type="secondary" if not is_active else "primary"):
+                    st.session_state.active_chat_id = s["session_id"]
+                    st.session_state.update({
+                        "stage": 0,
+                        "context": "",
+                        "findings": [],
+                        "chat": [],
+                        "resolved_count": None,
+                        "resolved_controls": set(),
+                        "resolved_list": [],
+                        "ewaste_resolved": None
+                    })
+                    st.rerun()
+            with col_del:
+                if st.button("🗑️", key=f"del_btn_{s['session_id']}", use_container_width=True):
+                    clear_chat_session(s["session_id"])
+                    if is_active:
+                        st.session_state.active_chat_id = uuid.uuid4().hex
+                        st.session_state.update({
+                            "stage": 0,
+                            "context": "",
+                            "findings": [],
+                            "chat": [],
+                            "resolved_count": None,
+                            "resolved_controls": set(),
+                            "resolved_list": [],
+                            "ewaste_resolved": None
+                        })
+                    st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
+    else:
+        st.markdown("<small style='color:#475569; display:block; margin-bottom:12px;'>No past chats yet</small>", unsafe_allow_html=True)
+    st.divider()
+
+    st.markdown("**AI Engine Setup**")
+    ai_model = st.selectbox("Select Offline LLM (via Ollama)", [
+        "Llama 3.1 (8B) - High Performance Generalist", 
+        "Qwen 2.5 (7B) - High Performance Auditor/Reasoning"
+    ], label_visibility="collapsed")
+    st.divider()
+
+    st.markdown("**Compliance Standard**")
+    selected_standard = st.selectbox("Select Target Framework", [
+        "All Standards",
+        "ISO 27001",
+        "DPDP / GDPR",
+        "SOC 2",
+        "BCMS (Business Continuity)",
+        "X-BOM (Software Bill of Materials)"
+    ], label_visibility="collapsed")
+
+    # Filter use cases based on standard
+    if selected_standard == "All Standards":
+        filtered_use_cases = USE_CASES
+    else:
+        filtered_use_cases = [u for u in USE_CASES if u["standard"] == selected_standard]
+       
+    st.markdown("**Target Controls to Audit**")
+    selected_control_labels = st.multiselect(
+        "Select individual controls",
+        options=[u["label"] for u in filtered_use_cases],
+        default=[u["label"] for u in filtered_use_cases],
+        label_visibility="collapsed"
+    )
+    
+    selected_ucs = [u for u in filtered_use_cases if u["label"] in selected_control_labels]
+    selected_sls = {u["sl"] for u in selected_ucs}
+    st.divider()
 
     st.markdown("**Upload Evidence**")
-    uploaded = st.file_uploader(f"Upload {uc['format']} file", type=["pdf","docx","doc"],
+    uploaded = st.file_uploader("Upload evidence document(s)", type=["pdf","docx","doc","xlsx","xls","csv","pptx","ppt","txt"],
                                 accept_multiple_files=True, label_visibility="collapsed")
     st.divider()
 
@@ -228,6 +468,8 @@ with st.sidebar:
     run = col_run.button("▶ Run Analysis", type="primary", use_container_width=True)
     if col_rst.button("↺", use_container_width=True):
         st.session_state.update({"stage":0,"context":"","findings":[],"chat":[],"ewaste_resolved":None})
+        clear_chat_session(st.session_state.active_chat_id)
+        st.session_state.active_chat_id = uuid.uuid4().hex
         st.rerun()
     
     # Show how many gaps were resolved after analysis
@@ -237,6 +479,11 @@ with st.sidebar:
             st.success(f"✅ {resolved} gap(s) resolved by uploaded evidence")
         else:
             st.warning("⚠️ No resolving evidence found in documents")
+            with st.expander("🔍 Inspect Extracted Text"):
+                if st.session_state.get("context", ""):
+                    st.text_area("Extracted Context (First 3000 chars)", st.session_state.context[:3000], height=200, disabled=True)
+                else:
+                    st.error("No text could be extracted. The document may be empty, password-protected, or a scanned image.")
 
 # ── PIPELINE EXECUTION ────────────────────────────────────────────────────────
 if run:
@@ -245,6 +492,7 @@ if run:
     else:
         malware_detected = False
         ctx = ""
+        file_texts = {}
         for f in uploaded:
             # 🛡️ Run Offline Malware Scan
             is_clean, reason = scan_file_security(f)
@@ -255,6 +503,7 @@ if run:
                 
             text = extract_text(f)
             ctx += f"--- FILE: {f.name} ---\n{text}\n\n"
+            file_texts[f.name] = text
             
         if malware_detected:
             st.stop()
@@ -264,33 +513,67 @@ if run:
             st.session_state.stage = s
             time.sleep(0.3)
         # ── DYNAMIC GAP RESOLUTION ENGINE ──────────────────────────────────────
-        # For each finding, check if any uploaded document contains resolving evidence
-        resolved_controls = set()
+        # For each finding, check which uploaded documents contain resolving evidence
+        resolved_mapping = {} # maps control -> list of file names
         for control, keywords in GAP_RESOLUTION.items():
-            if any(kw in ctx.lower() for kw in keywords):
-                resolved_controls.add(control)
+            matching_files = []
+            for fname, ftext in file_texts.items():
+                if any(kw in ftext.lower() for kw in keywords):
+                    matching_files.append(fname)
+            if matching_files:
+                resolved_mapping[control] = matching_files
 
         # Store count for sidebar indicator
-        st.session_state["resolved_count"] = len(resolved_controls)
-        st.session_state["resolved_controls"] = resolved_controls
+        st.session_state["resolved_count"] = len(resolved_mapping)
+        st.session_state["resolved_controls"] = set(resolved_mapping.keys())
 
         all_findings = []
         resolved_list = []
+        
+        file_names_list = list(file_texts.keys())
+        scanned_files_str = ", ".join(file_names_list) if file_names_list else "None"
+        
         for k, v in DEMO_FINDINGS.items():
             if k == "CROSS_FILE":
-                if len(uploaded) > 1:
-                    all_findings = v + all_findings
+                if len(uploaded) >= 1:
+                    for f in v:
+                        f_copy = f.copy()
+                        f_copy["status"] = "Open"
+                        f_copy["comment"] = ""
+                        f_copy["editing"] = False
+                        
+                        # Populate file names in cross-file finding dynamically
+                        f_text = f_copy.get("finding", "")
+                        if "File 1" in f_text:
+                            file1_name = file_names_list[0]
+                            file2_name = file_names_list[1] if len(file_names_list) > 1 else file_names_list[0]
+                            f_text = f_text.replace("File 1", f"'{file1_name}'").replace("File 2", f"'{file2_name}'")
+                            f_copy["finding"] = f_text
+                            if len(file_names_list) > 1:
+                                f_copy["source_files"] = f"Correlated between: '{file1_name}' and '{file2_name}'"
+                            else:
+                                f_copy["source_files"] = f"Internal correlation in: '{file1_name}'"
+                        else:
+                            f_copy["source_files"] = f"Checked in: {scanned_files_str}"
+                            
+                        all_findings.append(f_copy)
                 continue
-            for finding in v:
-                ctrl = finding.get("control", "")
-                if ctrl in resolved_controls:
-                    # Gap resolved — remove from report, track separately
-                    resolved_list.append(ctrl)
-                else:
-                    all_findings.append(finding)
+            if k in selected_sls:
+                for finding in v:
+                    ctrl = finding.get("control", "")
+                    if ctrl in resolved_mapping:
+                        # Gap resolved — remove from report, track separately
+                        resolved_files = resolved_mapping[ctrl]
+                        resolved_list.append(ctrl)
+                    else:
+                        f_copy = finding.copy()
+                        f_copy["status"] = "Open"
+                        f_copy["comment"] = ""
+                        f_copy["editing"] = False
+                        f_copy["source_files"] = f"Checked in: {scanned_files_str} (Evidence missing)"
+                        all_findings.append(f_copy)
 
         st.session_state["resolved_list"] = resolved_list
-
         st.session_state.findings = all_findings
         st.session_state.stage = 5
         st.rerun()
@@ -320,13 +603,17 @@ with st.container():
     with tab1:
         if st.session_state.stage == 0:
             st.markdown("### 📤 Upload Evidence to Begin")
-            st.info("Select a scenario and upload your document in the sidebar, then click **Run Analysis** to automatically detect cybersecurity gaps.")
+            st.info("Select compliance framework and individual controls in the sidebar, upload your evidence document(s), and click **Run Analysis** to automatically detect security gaps.")
 
         elif st.session_state.stage == 5:
             findings = st.session_state.findings
             resolved_list = st.session_state.get("resolved_list", [])
+            
+            # Filter out dismissed/deleted findings for active counts and report view
+            active_findings = [f for f in findings if f.get("status", "Open") != "Dismissed"]
+            
             counts = {"CRITICAL":0,"HIGH":0,"MEDIUM":0}
-            for f in findings:
+            for f in active_findings:
                 sev = f.get("severity","MEDIUM").upper()
                 if sev in counts: counts[sev] = counts[sev] + 1
 
@@ -341,33 +628,129 @@ with st.container():
                 resolved_html = " &nbsp;·&nbsp; ".join([f"<b>{c}</b>" for c in resolved_list])
                 st.markdown(f"<div style='background:rgba(34,197,94,0.1);border:1px solid #22c55e;border-radius:8px;padding:10px 16px;margin:12px 0;color:#22c55e;font-size:0.85rem'>✅ <b>Resolved Controls:</b> &nbsp;{resolved_html}</div>", unsafe_allow_html=True)
 
-            st.markdown(f"<br><small style='color:#64748b'>Generated · {datetime.now().strftime('%d %b %Y %H:%M:%S')} · Comprehensive Enterprise Audit (11 Controls)</small>", unsafe_allow_html=True)
+            st.markdown(f"<br><small style='color:#64748b'>Generated · {datetime.now().strftime('%d %b %Y %H:%M:%S')} · {selected_standard} ({len(selected_ucs)} Controls)</small>", unsafe_allow_html=True)
             st.divider()
 
             SEVERITY_LABEL = {"CRITICAL": "P1 · CRITICAL", "HIGH": "P2 · HIGH", "MEDIUM": "P3 · MEDIUM"}
             CSS = {"CRITICAL":"badge-critical","HIGH":"badge-high","MEDIUM":"badge-medium"}
             EMJ = {"CRITICAL":"🔴","HIGH":"🟠","MEDIUM":"🟡"}
-            open_findings = [f for f in findings if f.get("severity","MEDIUM").upper() in ["CRITICAL","HIGH","MEDIUM"]]
-            for f in sorted(open_findings, key=lambda x: ["CRITICAL","HIGH","MEDIUM"].index(x.get("severity","MEDIUM").upper())):
+            
+            # Sort findings by severity
+            open_findings_sorted = sorted(active_findings, key=lambda x: ["CRITICAL","HIGH","MEDIUM"].index(x.get("severity","MEDIUM").upper()))
+            
+            for idx, f in enumerate(open_findings_sorted):
                 s = f.get("severity","MEDIUM").upper()
                 label = SEVERITY_LABEL.get(s, s)
                 css = CSS.get(s, "badge-medium")
                 emj = EMJ.get(s, "🟡")
-                st.markdown(f"""<div class='{css}'>
-                  <b>{emj} {label}</b> &nbsp;|&nbsp; <b>{f.get('control','')}</b><br>
-                  <span style='color:#cbd5e1'>📌 {f.get('finding','')}</span><br>
-                  <span style='color:#86efac'>→ {f.get('recommendation','')}</span>
-                </div>""", unsafe_allow_html=True)
+                status = f.get("status", "Open")
+                editing = f.get("editing", False)
+                
+                status_color = "#3b82f6" if status == "Open" else "#22c55e"
+                
+                if editing:
+                    # Render inline editor container
+                    with st.container(border=True):
+                        st.markdown("##### ✏️ Modify Finding Details")
+                        col_edit_sev, col_edit_ctrl = st.columns([1, 2])
+                        with col_edit_sev:
+                            sev_index = ["CRITICAL", "HIGH", "MEDIUM"].index(s) if s in ["CRITICAL", "HIGH", "MEDIUM"] else 2
+                            new_sev = st.selectbox("Severity", ["CRITICAL", "HIGH", "MEDIUM"], index=sev_index, key=f"sev_edit_sel_{idx}")
+                        with col_edit_ctrl:
+                            new_ctrl = st.text_input("Control", value=f.get("control", ""), key=f"ctrl_edit_in_{idx}")
+                        
+                        new_finding = st.text_area("Finding Description", value=f.get("finding", ""), key=f"find_edit_ta_{idx}", height=80)
+                        new_rec = st.text_area("Recommendation/Mitigation", value=f.get("recommendation", ""), key=f"rec_edit_ta_{idx}", height=80)
+                        new_src = st.text_input("Source File Scope", value=f.get("source_files", "All uploaded documents"), key=f"src_edit_in_{idx}")
+                        
+                        col_save, col_cancel = st.columns([1.5, 1.5])
+                        with col_save:
+                            if st.button("💾 Save Changes", key=f"save_edit_{idx}", type="primary", use_container_width=True):
+                                for orig_f in st.session_state.findings:
+                                    if orig_f["control"] == f["control"] and orig_f["finding"] == f["finding"]:
+                                        orig_f["severity"] = new_sev
+                                        orig_f["control"] = new_ctrl
+                                        orig_f["finding"] = new_finding
+                                        orig_f["recommendation"] = new_rec
+                                        orig_f["source_files"] = new_src
+                                        orig_f["editing"] = False
+                                st.rerun()
+                        with col_cancel:
+                            if st.button("Cancel", key=f"cancel_edit_{idx}", use_container_width=True):
+                                for orig_f in st.session_state.findings:
+                                    if orig_f["control"] == f["control"] and orig_f["finding"] == f["finding"]:
+                                        orig_f["editing"] = False
+                                st.rerun()
+                else:
+                    # Render standard static view
+                    st.markdown(f"""
+                    <div class='{css}' style='margin-bottom:0px; border-bottom-left-radius:0px; border-bottom-right-radius:0px;'>
+                      <div style='display:flex; justify-content:space-between; align-items:center;'>
+                        <b>{emj} {label}</b>
+                        <span style='font-size:0.75rem; background:{status_color}; color:white; padding:2px 8px; border-radius:12px; font-weight:600;'>{status.upper()}</span>
+                      </div>
+                      <div style='margin-top:6px;'><b>Control:</b> {f.get('control','')}</div>
+                      <span style='color:#cbd5e1'>📌 <b>Finding:</b> {f.get('finding','')}</span><br>
+                      <span style='color:#86efac'>→ <b>Recommendation:</b> {f.get('recommendation','')}</span>
+                      <div style='margin-top:8px; font-size:0.8rem; color:#94a3b8; border-top:1px dashed #334155; padding-top:6px; display:flex; align-items:center; gap:6px;'>
+                        <span>📁</span> <b>Source File Scope:</b> <i>{f.get('source_files','All uploaded documents')}</i>
+                      </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    # Attached actions section
+                    with st.container(border=True):
+                        col_act1, col_act2, col_act3, col_act4 = st.columns([1.8, 1.8, 1.8, 5])
+                        with col_act1:
+                            if status == "Accepted":
+                                if st.button("↩ Undo", key=f"undo_{idx}", use_container_width=True, type="secondary"):
+                                    for orig_f in st.session_state.findings:
+                                        if orig_f["control"] == f["control"] and orig_f["finding"] == f["finding"]:
+                                            orig_f["status"] = "Open"
+                                    st.rerun()
+                            else:
+                                if st.button("✓ Accept", key=f"acc_{idx}", use_container_width=True, type="secondary"):
+                                    for orig_f in st.session_state.findings:
+                                        if orig_f["control"] == f["control"] and orig_f["finding"] == f["finding"]:
+                                            orig_f["status"] = "Accepted"
+                                    st.rerun()
+                        with col_act2:
+                            if st.button("✏️ Modify", key=f"mod_{idx}", use_container_width=True, type="secondary"):
+                                for orig_f in st.session_state.findings:
+                                    if orig_f["control"] == f["control"] and orig_f["finding"] == f["finding"]:
+                                        orig_f["editing"] = True
+                                st.rerun()
+                        with col_act3:
+                            if st.button("🗑️ Delete", key=f"del_{idx}", use_container_width=True, type="secondary"):
+                                for orig_f in st.session_state.findings:
+                                    if orig_f["control"] == f["control"] and orig_f["finding"] == f["finding"]:
+                                        orig_f["status"] = "Dismissed"
+                                st.rerun()
+                        with col_act4:
+                            comment_val = st.text_input("Auditor Notes", value=f.get("comment", ""), key=f"cmt_{idx}", label_visibility="collapsed", placeholder="Add auditor notes or comments...")
+                            if comment_val != f.get("comment", ""):
+                                for orig_f in st.session_state.findings:
+                                    if orig_f["control"] == f["control"] and orig_f["finding"] == f["finding"]:
+                                        orig_f["comment"] = comment_val
 
             st.divider()
             b1, b2 = st.columns(2)
             with b1:
                 if st.button("💾  Save to ShaktiDB", type="primary", use_container_width=True):
-                    save_findings({"sl": 0, "use_case": "Comprehensive Enterprise Audit"}, findings)
-                    st.success(f"✅ {len(findings)} findings saved to {db_label}")
+                    save_findings({"sl": 0, "use_case": f"{selected_standard} Audit Run"}, active_findings)
+                    st.success(f"✅ {len(active_findings)} findings saved to {db_label}")
             with b2:
-                csv = pd.DataFrame(findings).to_csv(index=False)
-                st.download_button("⬇️  Export Report CSV", csv, "comprehensive_audit_report.csv", use_container_width=True)
+                df_export = pd.DataFrame([{
+                    "Control": f.get("control", ""),
+                    "Severity": f.get("severity", ""),
+                    "Finding": f.get("finding", ""),
+                    "Recommendation": f.get("recommendation", ""),
+                    "Status": f.get("status", "Open"),
+                    "Source Scope": f.get("source_files", "All uploaded documents"),
+                    "Auditor Comment": f.get("comment", "")
+                } for f in active_findings])
+                csv_data = df_export.to_csv(index=False)
+                st.download_button("⬇️  Export Report CSV", csv_data, "comprehensive_audit_report.csv", use_container_width=True)
 
     # ── TAB 2 ─────────────────────────────────────────────────────────────────
     with tab2:
@@ -405,20 +788,48 @@ with st.container():
 
         user_msg = st.chat_input("Ask the AI Auditor anything...") or chosen
         if user_msg:
-            st.session_state.chat.append({"role":"user","content":user_msg})
+            # Determine active title
+            existing = get_chat_history(st.session_state.active_chat_id)
+            if not existing:
+                title = user_msg[:30] + ("..." if len(user_msg) > 30 else "")
+            else:
+                title = "Untitled Chat"
+                all_sess = get_all_chat_sessions()
+                for s in all_sess:
+                    if s["session_id"] == st.session_state.active_chat_id:
+                        title = s["session_title"]
+                        break
+            
+            save_chat_message(st.session_state.active_chat_id, title, "user", user_msg)
+            
+            # Immediately show the user's message in the UI so it doesn't freeze
+            st.markdown(f"<div style='text-align:right;font-size:11px;color:#64748b;margin-top:8px'>You</div><div class='chat-bubble-user'>{user_msg}</div>", unsafe_allow_html=True)
+            
             sys = "You are a Senior Cybersecurity Auditor. PERFORM CROSS-DOCUMENT CORRELATION: Look for inconsistencies, contradictions, or missing links between the multiple uploaded files. If File A mentions a policy but File B shows it is not followed, flag it. Be precise, professional, and structured."
             if st.session_state.context:
                 sys += f"\n\nEVIDENCE:\n{st.session_state.context[:4000]}"
             if st.session_state.findings:
                 sys += f"\n\nFINDINGS:\n{json.dumps(st.session_state.findings)[:1500]}"
-            with st.spinner("Analyzing..."):
-                ans = ollama_chat(sys, user_msg)
-            st.session_state.chat.append({"role":"assistant","content":ans})
+            
+            # Setup real-time streaming UI
+            st.markdown(f"<div style='font-size:11px;color:#3b82f6;font-weight:600;margin-top:8px'>🤖 AI Auditor ({ai_model.split(' ')[0]})</div>", unsafe_allow_html=True)
+            placeholder = st.empty()
+            full_ans = ""
+            
+            # Stream the conversation tokens as they arrive
+            for chunk in ai_chat_stream(sys, user_msg, ai_model):
+                full_ans += chunk
+                placeholder.markdown(f"<div class='chat-bubble-bot'>{full_ans}▌</div>", unsafe_allow_html=True)
+            
+            # Final output without the cursor block
+            placeholder.markdown(f"<div class='chat-bubble-bot'>{full_ans}</div>", unsafe_allow_html=True)
+            
+            save_chat_message(st.session_state.active_chat_id, title, "assistant", full_ans)
             st.rerun()
 
         if st.session_state.chat:
-            if st.button("🗑️ Clear conversation", use_container_width=True):
-                st.session_state.chat = []
+            if st.button("🗑️ Clear Active Chat", use_container_width=True):
+                clear_chat_session(st.session_state.active_chat_id)
                 st.rerun()
 
     # ── TAB 3 ─────────────────────────────────────────────────────────────────
@@ -433,10 +844,23 @@ with st.container():
                 "Control": r.control,
                 "Finding": (r.finding or "")[:90],
                 "Recommendation": (r.recommendation or "")[:90],
+                "Status": r.status,
+                "Comment": r.comment,
                 "Date": r.created_at.strftime("%d %b %Y") if r.created_at else ""
             } for r in rows])
             st.dataframe(df, use_container_width=True, hide_index=True)
-            st.download_button("⬇️ Export All Records", df.to_csv(index=False), "all_audit_findings.csv", use_container_width=True)
+            col_exp, col_clear = st.columns(2)
+            with col_exp:
+                st.download_button("⬇️ Export All Records", df.to_csv(index=False), "all_audit_findings.csv", use_container_width=True)
+            with col_clear:
+                if st.button("🗑️ Clear All Database Records", use_container_width=True, type="secondary"):
+                    Session = sessionmaker(bind=engine)
+                    db = Session()
+                    db.query(AuditFinding).delete()
+                    db.commit()
+                    db.close()
+                    st.success("✅ Database records cleared successfully!")
+                    st.rerun()
         else:
             st.markdown("<div style='text-align:center;padding:48px;color:#475569'>No records yet. Run an audit and save findings.</div>", unsafe_allow_html=True)
 

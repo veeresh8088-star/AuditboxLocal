@@ -4,7 +4,7 @@
 The **AICyberAuditBox** is a next-generation, RAG-powered AI tool designed for Cybersecurity Audits and Assessments. It provides a completely private, offline, and secure pipeline for analyzing sensitive audit evidence.
 
 ## Architecture
-- **Intelligence Engine**: Local Ollama (Llama 3 / Mistral)
+- **Intelligence Engine**: Local Ollama (Llama 3.1 8B / Qwen 2.5 7B)
 - **Database Engine**: ShaktiDB (Built on PostgreSQL 17.7) - Hosted in an isolated Linux environment.
 - **Frontend Dashboard**: Streamlit (Python 3.14+)
 
@@ -30,7 +30,7 @@ The **AICyberAuditBox** is a next-generation, RAG-powered AI tool designed for C
 
 ### Step 3: Local AI Integration
 - Ensure **Ollama** is running on the host machine.
-- Pull the required model: `ollama run llama3`
+- Pull the required model: `ollama pull llama3.1` and `ollama pull qwen2.5:7b`
 
 ## Troubleshooting (Auto-Local Feature)
 If the primary ShaktiDB server (VM) is not reachable, the AICyberAuditBox will automatically switch to **Local SQLite Storage** (`shakthidb_local.db`) to ensure zero-downtime during presentations.
@@ -40,3 +40,7 @@ If the primary ShaktiDB server (VM) is not reachable, the AICyberAuditBox will a
 ## .\run_demo.bat
 
 ## docker-compose up -d
+## .\pull_models.bat
+## ##Ran docker rm -f shakthidb_service to remove the conflicting container.
+Ran 
+## docker-compose up -d to create and launch the fresh ShaktiDB instance successfully.
