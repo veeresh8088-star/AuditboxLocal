@@ -872,7 +872,11 @@ with st.container():
             if st.session_state.context:
                 sys += f"\n\nEVIDENCE:\n{st.session_state.context[:4000]}"
             if st.session_state.findings:
-                sys += f"\n\nFINDINGS:\n{json.dumps(st.session_state.findings)[:1500]}"
+                sys += f"\n\nOPEN GAPS (unresolved):\n{json.dumps(st.session_state.findings)[:1500]}"
+            resolved_list = st.session_state.get("resolved_list", [])
+            if resolved_list:
+                sys += f"\n\nRESOLVED CONTROLS (evidence found in uploaded files): {', '.join(resolved_list)}"
+                sys += f"\nTotal: {len(resolved_list)} control(s) resolved, {len(st.session_state.findings)} gap(s) still open."
             
             # Setup real-time streaming UI
             st.markdown(f"<div style='font-size:11px;color:#3b82f6;font-weight:600;margin-top:8px'>🤖 AI Auditor ({ai_model.split(' ')[0]})</div>", unsafe_allow_html=True)

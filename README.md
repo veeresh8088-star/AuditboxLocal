@@ -41,6 +41,9 @@ If the primary ShaktiDB server (VM) is not reachable, the AICyberAuditBox will a
 
 ## docker-compose up -d
 ## .\pull_models.bat
-## ##Ran docker rm -f shakthidb_service to remove the conflicting container.
-Ran 
+## ## Ran docker rm -f shakthidb_service to remove the conflicting container.
+
 ## docker-compose up -d to create and launch the fresh ShaktiDB instance successfully.
+
+
+## python -m py_compile app.py
