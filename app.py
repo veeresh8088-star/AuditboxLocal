@@ -733,6 +733,23 @@ with st.container():
                                     if orig_f["control"] == f["control"] and orig_f["finding"] == f["finding"]:
                                         orig_f["comment"] = comment_val
 
+
+            # Display restore option for deleted findings
+            dismissed_findings = [df for df in findings if df.get("status", "Open") == "Dismissed"]
+            if dismissed_findings:
+                st.markdown("<br>", unsafe_allow_html=True)
+                with st.expander(f"🗑️ Deleted Findings ({len(dismissed_findings)})", expanded=False):
+                    for idx_d, df in enumerate(dismissed_findings):
+                        col_text, col_restore = st.columns([8, 2])
+                        with col_text:
+                            st.markdown(f"**{df.get('control', '')}** — <span style='color:#94a3b8'>{df.get('finding', '')[:90]}...</span>", unsafe_allow_html=True)
+                        with col_restore:
+                            if st.button("↩ Restore", key=f"restore_{idx_d}", use_container_width=True):
+                                for orig_f in st.session_state.findings:
+                                    if orig_f["control"] == df["control"] and orig_f["finding"] == df["finding"]:
+                                        orig_f["status"] = "Open"
+                                st.rerun()
+
             st.divider()
             b1, b2 = st.columns(2)
             with b1:
