@@ -845,6 +845,7 @@ with st.container():
                 "Finding": (r.finding or "")[:90],
                 "Recommendation": (r.recommendation or "")[:90],
                 "Status": r.status,
+                "Source Scope": r.source_files,
                 "Comment": r.comment,
                 "Date": r.created_at.strftime("%d %b %Y") if r.created_at else ""
             } for r in rows])
