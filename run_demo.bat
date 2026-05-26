@@ -1,7 +1,7 @@
 @echo off
 title AICyberAuditBox Demo Launcher
 echo ==========================================
-echo    AICyberAuditBox - Presentation Mode
+echo    AICyberAuditBox
 echo ==========================================
 
 echo.
