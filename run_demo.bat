@@ -8,11 +8,10 @@ echo.
 echo [1/3] Checking Ollama (AI Engine)...
 python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:11434/', timeout=2)" >nul 2>&1
 if %errorlevel% neq 0 (
-    echo [!] WARNING: Ollama is not running on port 11434.
-    echo     The AI Assistant will be disabled.
-    echo     Please start Ollama if you need AI features.
-    echo.
-    pause
+    echo [i] NOTE: Ollama is not running. Starting it automatically...
+    start "" "%localappdata%\Programs\Ollama\ollama app.exe"
+    echo Waiting for Ollama to initialize...
+    timeout /t 6 >nul
 ) else (
     echo [v] OK: Ollama is active.
 )
