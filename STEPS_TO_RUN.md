@@ -17,7 +17,7 @@ If you have not downloaded the local AI models yet, run the model downloader scr
 ```powershell
 .\pull_models.bat
 ```
-*(This pulls `qwen2.5:7b` and `llama3.1:8b` directly to your local Ollama engine).*
+*(This pulls the supported Llama, Gemma 2, and Qwen 2.5 models directly to your local Ollama engine).*
 
 ---
 

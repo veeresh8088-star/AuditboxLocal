@@ -1,6 +1,0 @@
-Audit Evidence Document
------------------------
-This document outlines our company's cybersecurity practices.
-- We have implemented an access control policy covering grant, review, revoke lifecycle.
-- Access is strictly role-based and managed through rbac.
-- Multi-factor authentication (mfa enabled) is enforced for all cloud and VPN connections.

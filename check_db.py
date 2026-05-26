@@ -9,10 +9,10 @@ def test_connection():
     try:
         engine = create_engine(DB_URL)
         connection = engine.connect()
-        print("✅ SUCCESS: ShakthiDB is connected and working!")
+        print("[SUCCESS] ShakthiDB is connected and working!")
         connection.close()
     except Exception as e:
-        print("❌ FAILED: Could not connect to ShakthiDB.")
+        print("[FAILED] Could not connect to ShakthiDB.")
         print(f"\nError Details: {e}")
         print("\nPossible solutions:")
         print("1. Ensure PostgreSQL is installed and running on your machine.")

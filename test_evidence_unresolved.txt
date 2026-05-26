@@ -1,4 +1,0 @@
-Office Guidelines and Clean Desk Policy
----------------------------------------
-This is a document about general office guidelines. All employees must keep their desk clean.
-No IT policies, server access controls, role assignments, or MFA configurations are discussed in this file.
