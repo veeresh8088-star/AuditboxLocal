@@ -1486,7 +1486,7 @@ with st.container():
             stop_placeholder.empty()
             
             if not full_ans.strip():
-                full_ans = "⚠️ The local AI engine did not return a response. Please verify that the Ollama service is active on your host machine and that your Llama model is fully downloaded (run `.\pull_models.bat` to verify)."
+                full_ans = "⚠️ The local AI engine did not return a response. Please verify that the Ollama service is active on your host machine and that your Llama model is fully downloaded (run `.\\pull_models.bat` to verify)."
             
             placeholder.markdown(f"{label_html}<div style='display:flex;justify-content:flex-start;width:100%'><div class='chat-bubble-bot'>{full_ans}</div></div>", unsafe_allow_html=True)
             st.session_state.chat.append({"role": "assistant", "content": full_ans})

@@ -7,3 +7,6 @@ __pycache__/
 *.log
 DEPLOYMENT_GUIDE.md
 *.pdf
+Deployment_details.md
+*details*.md
+*EXCLUDE*
