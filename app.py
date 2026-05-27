@@ -1006,9 +1006,6 @@ with st.container():
                 <p style='color: #94a3b8; max-width: 500px; margin: 0 auto 24px auto; font-size: 0.9rem; line-height: 1.5;'>
                     Ollama offline LLM is currently running a comprehensive gap analysis on your uploaded evidence documents. This deep-learning audit takes about <b>1 to 3 minutes</b>.
                 </p>
-                <div style='background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.15); border-radius: 8px; padding: 12px 20px; max-width: 500px; margin: 0 auto; color: #60a5fa; font-size: 0.85rem; font-weight: 500;'>
-                    💡 Multi-tasking Active: You can safely switch to other completed chats in the sidebar, view completed reports, or chat with the AI assistant. The results will automatically render here once ready!
-                </div>
                 <style>
                     .custom-spinner { border: 4px solid rgba(59, 130, 246, 0.1); border-top: 4px solid #3b82f6; border-radius: 50%; width: 48px; height: 48px; animation: spin_loader 1s linear infinite; margin: 0 auto 24px auto; }
                     @keyframes spin_loader { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
