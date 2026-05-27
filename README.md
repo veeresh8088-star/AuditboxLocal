@@ -34,16 +34,3 @@ The **AICyberAuditBox** is a next-generation, RAG-powered AI tool designed for C
 
 ## Troubleshooting (Auto-Local Feature)
 If the primary ShaktiDB server (VM) is not reachable, the AICyberAuditBox will automatically switch to **Local SQLite Storage** (`shakthidb_local.db`) to ensure zero-downtime during presentations.
-
----
-**Developed for CERT-In Samvaad 2026**
-## .\run_demo.bat
-
-## docker-compose up -d
-## .\pull_models.bat
-## ## Ran docker rm -f shakthidb_service to remove the conflicting container.
-
-## docker-compose up -d to create and launch the fresh ShaktiDB instance successfully.
-
-
-## python -m py_compile app.py
