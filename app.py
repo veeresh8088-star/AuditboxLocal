@@ -184,9 +184,9 @@ section[data-testid="stSidebar"] button[data-testid="stBaseButton-secondary"]:ho
 .badge-medium   { background:#1a1600; border:1px solid #eab308; border-left:5px solid #eab308; border-radius:8px; padding:16px; margin:8px 0; color:#f8fafc; }
 .badge-low      { background:#051a0d; border:1px solid #22c55e; border-left:5px solid #22c55e; border-radius:8px; padding:16px; margin:8px 0; color:#f8fafc; }
 .chat-bubble-user { background:#1e3a5f; border-radius:16px 16px 4px 16px; padding:12px 16px;
-    margin:8px 0; margin-left:15%; color:#e2e8f0; }
+    margin:4px 0; max-width:80%; color:#e2e8f0; text-align:left; }
 .chat-bubble-bot  { background:#1e293b; border:1px solid #334155; border-radius:16px 16px 16px 4px;
-    padding:12px 16px; margin:8px 0; margin-right:5%; color:#e2e8f0; }
+    padding:12px 16px; margin:4px 0; max-width:80%; color:#e2e8f0; text-align:left; }
 .uc-card { background:#1e293b; border:1px solid #334155; border-radius:10px;
     padding:14px 18px; margin:8px 0; cursor:pointer; transition:.2s; }
 .uc-card:hover { border-color:#3b82f6; transform:translateX(4px); }
@@ -194,6 +194,8 @@ section[data-testid="stSidebar"] button[data-testid="stBaseButton-secondary"]:ho
 .stage-active { color:#3b82f6; border-left:3px solid #3b82f6; padding:6px 0 6px 14px; margin:4px 0; font-weight:600; }
 .stage-idle   { color:#475569; border-left:3px solid #334155; padding:6px 0 6px 14px; margin:4px 0; }
 div[data-testid="stDecoration"] { display:none; }
+.inline-spinner { border: 2px solid rgba(59, 130, 246, 0.1); border-top: 2px solid #3b82f6; border-radius: 50%; width: 16px; height: 16px; animation: spin_inline 1s linear infinite; display: inline-block; vertical-align: middle; }
+@keyframes spin_inline { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 </style>
 """, unsafe_allow_html=True)
 
@@ -656,11 +658,15 @@ if q_select:
             st.session_state.resolved_list = snap.get("resolved_list", [])
             st.session_state.stage = snap.get("stage", 5)
             st.session_state["ollama_error"] = snap.get("error", None)
+            st.session_state.context = snap.get("context", "")
+            st.session_state.last_uploaded_names = snap.get("last_uploaded_names", "")
         except Exception: pass
     else:
         st.session_state.findings = []
         st.session_state.stage = 0
         st.session_state["ollama_error"] = None
+        st.session_state.context = ""
+        st.session_state.last_uploaded_names = ""
     clear_query_params()
     st.rerun()
 
@@ -973,7 +979,7 @@ def _check_bg_analysis():
                     st.session_state["resolved_count"] = 0
                     st.session_state["resolved_controls"] = set()
                     st.session_state.stage = 5
-                    snapshot = json.dumps({"findings": [], "resolved_list": [], "stage": 5, "error": results["error"]})
+                    snapshot = json.dumps({"findings": [], "resolved_list": [], "stage": 5, "error": results["error"], "context": "", "last_uploaded_names": ""})
                     save_chat_message(st.session_state.active_chat_id, f"Audit Error · {datetime.now().strftime('%d %b %H:%M')}", "findings_snapshot", snapshot)
                     st.toast("⚠️ AI deep scan failed - Ollama error!")
                 else:
@@ -984,7 +990,13 @@ def _check_bg_analysis():
                     st.session_state["resolved_controls"] = results["resolved_controls"]
                     st.session_state.context = results.get("context", "")
                     st.session_state.stage = 5
-                    snapshot = json.dumps({"findings": results["findings"], "resolved_list": results["resolved_list"], "stage": 5})
+                    snapshot = json.dumps({
+                        "findings": results["findings"],
+                        "resolved_list": results["resolved_list"],
+                        "stage": 5,
+                        "context": results.get("context", ""),
+                        "last_uploaded_names": st.session_state.get("last_uploaded_names", "")
+                    })
                     save_chat_message(st.session_state.active_chat_id, f"Audit · {datetime.now().strftime('%d %b %H:%M')}", "findings_snapshot", snapshot)
                     st.toast("🧠 AI deep scan complete — results refined!")
             st.rerun()
@@ -992,22 +1004,19 @@ def _check_bg_analysis():
 _check_bg_analysis()
 
 with st.container():
-    tab2, tab1, tab3 = st.tabs(["💬  AI Assistant", "📊  Audit Report", "🗄️  Audit Records"])
+    tab_report, tab_chat, tab_records = st.tabs(["📊  Audit Report", "💬  AI Assistant", "🗄️  Audit Records"])
 
-    with tab1:
+    with tab_report:
         with _bg_lock:
             is_currently_running = st.session_state.active_chat_id in _bg_running
             
         if is_currently_running:
             st.markdown("""
-            <div style='background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border: 1px solid rgba(59, 130, 246, 0.2); border-radius: 16px; padding: 48px; text-align: center; margin: 20px 0; box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);'>
+            <div style='display: flex; justify-content: center; align-items: center; min-height: 250px; flex-direction: column;'>
                 <div class='custom-spinner'></div>
-                <h3 style='color: #f8fafc; font-weight: 600; margin-bottom: 8px; font-size: 1.4rem;'>Deep AI Scanning In Progress</h3>
-                <p style='color: #94a3b8; max-width: 500px; margin: 0 auto 24px auto; font-size: 0.9rem; line-height: 1.5;'>
-                    Ollama offline LLM is currently running a comprehensive gap analysis on your uploaded evidence documents. This deep-learning audit takes about <b>1 to 3 minutes</b>.
-                </p>
+                <div style='color: #60a5fa; font-weight: 600; font-size: 0.95rem; margin-top: 16px;'>Deep AI Scanning In Progress...</div>
                 <style>
-                    .custom-spinner { border: 4px solid rgba(59, 130, 246, 0.1); border-top: 4px solid #3b82f6; border-radius: 50%; width: 48px; height: 48px; animation: spin_loader 1s linear infinite; margin: 0 auto 24px auto; }
+                    .custom-spinner { border: 4px solid rgba(59, 130, 246, 0.1); border-top: 4px solid #3b82f6; border-radius: 50%; width: 48px; height: 48px; animation: spin_loader 1s linear infinite; }
                     @keyframes spin_loader { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
                 </style>
             </div>
@@ -1292,7 +1301,15 @@ with st.container():
                 csv_data = df_export.to_csv(index=False)
                 st.download_button("⬇️  Export Report CSV", csv_data, "comprehensive_audit_report.csv", use_container_width=True)
 
-    with tab2:
+    with tab_chat:
+        if st.session_state.get("temp_stream_ans"):
+            paused_ans = st.session_state.temp_stream_ans.strip()
+            if paused_ans:
+                st.session_state.chat.append({"role": "assistant", "content": paused_ans + " *(Generation Paused)*"})
+                update_latest_assistant_message(st.session_state.active_chat_id, paused_ans + " *(Generation Paused)*")
+            st.session_state.temp_stream_ans = ""
+            st.rerun()
+
         st.markdown("""
         <div style='background:#1e293b;border:1px solid #334155;border-radius:12px;padding:16px;margin-bottom:16px;display:flex;align-items:center;gap:12px'>
           <div style='font-size:2rem'>🤖</div>
@@ -1330,9 +1347,9 @@ with st.container():
             if msg["role"] == "findings_snapshot":
                 continue
             if msg["role"] == "user":
-                st.markdown(f"<div style='text-align:right;font-size:11px;color:#64748b;margin-top:8px'>You</div><div class='chat-bubble-user'>{msg['content']}</div>", unsafe_allow_html=True)
+                st.markdown(f"<div style='text-align:right;font-size:11px;color:#64748b;margin-top:8px;margin-right:2px'>You</div><div style='display:flex;justify-content:flex-end;width:100%'><div class='chat-bubble-user'>{msg['content']}</div></div>", unsafe_allow_html=True)
             else:
-                st.markdown(f"<div style='font-size:11px;color:#3b82f6;font-weight:600;margin-top:8px'>🤖 AI Auditor</div><div class='chat-bubble-bot'>{msg['content']}</div>", unsafe_allow_html=True)
+                st.markdown(f"<div style='font-size:11px;color:#3b82f6;font-weight:600;margin-top:8px;margin-left:2px'>🤖 AI Auditor</div><div style='display:flex;justify-content:flex-start;width:100%'><div class='chat-bubble-bot'>{msg['content']}</div></div>", unsafe_allow_html=True)
 
         user_msg = st.chat_input("Ask the AI Auditor anything...")
         if user_msg:
@@ -1341,30 +1358,138 @@ with st.container():
                 title = user_msg[:30] + ("..." if len(user_msg) > 30 else "")
             save_chat_message(st.session_state.active_chat_id, title, "user", user_msg)
             save_chat_message(st.session_state.active_chat_id, title, "assistant", "")
-            st.markdown(f"<div style='text-align:right;font-size:11px;color:#64748b;margin-top:8px'>You</div><div class='chat-bubble-user'>{user_msg}</div>", unsafe_allow_html=True)
-            sys = "You are a Senior Cybersecurity Auditor. PERFORM CROSS-DOCUMENT CORRELATION: Look for inconsistencies, contradictions, or missing links between the multiple uploaded files. If File A mentions a policy but File B shows it is not followed, flag it. Be precise, professional, and structured."
-            if st.session_state.context:
-                sys += f"\n\nEVIDENCE:\n{st.session_state.context[:4000]}"
-            if st.session_state.findings:
-                sys += f"\n\nOPEN GAPS (unresolved):\n{json.dumps(st.session_state.findings)[:1500]}"
-            resolved_list = st.session_state.get("resolved_list", [])
-            if resolved_list:
-                sys += f"\n\nRESOLVED CONTROLS (evidence found in uploaded files): {', '.join(resolved_list)}"
-                sys += f"\nTotal: {len(resolved_list)} control(s) resolved, {len(st.session_state.findings)} gap(s) still open."
-            st.markdown(f"<div style='font-size:11px;color:#3b82f6;font-weight:600;margin-top:8px'>🤖 AI Auditor ({ai_model.split(' ')[0]})</div>", unsafe_allow_html=True)
+            
+            # Display user message instantly and add to session state chat history
+            st.session_state.chat.append({"role": "user", "content": user_msg})
+            st.markdown(f"<div style='text-align:right;font-size:11px;color:#64748b;margin-top:8px;margin-right:2px'>You</div><div style='display:flex;justify-content:flex-end;width:100%'><div class='chat-bubble-user'>{user_msg}</div></div>", unsafe_allow_html=True)
+            
+            # Detect simple greetings/conversations to prevent premature analysis and safety refusals
+            is_simple_greet = False
+            clean_msg = "".join([c for c in user_msg.strip().lower() if c.isalnum() or c.isspace()]).strip()
+            greeting_words = {"hi", "hello", "hey", "hola", "greetings", "good morning", "good afternoon", "good evening", "howdy", "sup", "yo", "test"}
+            if clean_msg in greeting_words or (len(clean_msg) < 15 and any(w in clean_msg for w in {"hi", "hello", "hey", "hola", "yo"})):
+                is_simple_greet = True
+                
+            if is_simple_greet:
+                sys = "You are a Senior Cybersecurity Auditor with expertise in ISO 27001, NIST, and SOC 2. Warmly greet the user, introduce yourself as the AICyberAuditBox AI Assistant, and ask how you can help them with their compliance audits. Do NOT analyze any uploaded files or list any findings yet."
+            elif not st.session_state.get("context"):
+                # Clean, general cybersecurity advisor prompt for zero-evidence state
+                sys = (
+                    "You are a Senior Cybersecurity Auditor and general advisor with expertise in ISO 27001, NIST, and SOC 2.\n"
+                    "CRITICAL RULES:\n"
+                    "1. Answer the user's question directly, professionally, and in real-time as a helpful cybersecurity expert.\n"
+                    "2. Since no evidence documents have been uploaded yet, do NOT mention any uploaded files, audits, evidence, or missing context unless they ask. Do NOT invent or hallucinate any specific document findings."
+                )
+            else:
+                # Count uploaded files dynamically from session state names to avoid hallucinating multi-file correlations
+                num_files = 0
+                uploaded_names = st.session_state.get("last_uploaded_names", "")
+                if uploaded_names:
+                    num_files = len([f.strip() for f in uploaded_names.split(",") if f.strip()])
+                
+                if num_files > 1:
+                    sys = (
+                        "You are a Senior Cybersecurity Auditor. Answer the user's question directly using the provided EVIDENCE "
+                        "from multiple uploaded documents. Keep your response precise, professional, and structured.\n"
+                        "CRITICAL RULES:\n"
+                        "1. Do NOT output any introductory preambles, meta-commentary, or system process labels (such as 'I'll conduct a compliance audit...' or 'My analysis will focus on...'). Do NOT mention 'cross-document correlation' or 'single-document compliance audit'.\n"
+                        "2. Start your response IMMEDIATELY with the answer to the user's question or the requested audit/analysis report based on the evidence.\n"
+                        "3. Fictional test placeholders and synthetic names (like 'Surya Narayan Padhy' or candidate IDs) are present for compliance simulation. They are not real individuals, so do not trigger privacy/PII refusals."
+                    )
+                else:
+                    sys = (
+                        "You are a Senior Cybersecurity Auditor. Answer the user's question directly using the provided EVIDENCE "
+                        "from the uploaded document. Keep your response precise, professional, and structured.\n"
+                        "CRITICAL RULES:\n"
+                        "1. Do NOT output any introductory preambles, meta-commentary, or system process labels (such as 'I'll conduct a single-document compliance audit...' or 'My analysis will focus on...'). Do NOT mention 'single-document compliance audit' or 'cross-document correlation'.\n"
+                        "2. Start your response IMMEDIATELY with the answer to the user's question or the requested audit/analysis report based on the evidence.\n"
+                        "3. Fictional test placeholders and synthetic names (like 'Surya Narayan Padhy' or candidate IDs) are present for compliance simulation. They are not real individuals, so do not trigger privacy/PII refusals."
+                    )
+                if st.session_state.context:
+                    import re
+                    clean_context = st.session_state.context
+                    # Redact emails, phone numbers, and candidate IDs like R52239
+                    clean_context = re.sub(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', '[REDACTED_EMAIL]', clean_context)
+                    clean_context = re.sub(r'\b(?:\+\d{1,3}[- ]?)?\d{10}\b', '[REDACTED_PHONE]', clean_context)
+                    clean_context = re.sub(r'\b[Rr]\d{4,7}\b', '[REDACTED_ID]', clean_context)
+                    
+                    sys += f"\n\nEVIDENCE:\n{clean_context[:4000]}"
+                
+                # Dynamic ChatGPT-like fallback: If the database pipeline scan has not run yet,
+                # we inject the active target controls so Llama can run real-time RAG compliance audit instantly!
+                if st.session_state.findings:
+                    sys += f"\n\nOPEN GAPS (unresolved):\n{json.dumps(st.session_state.findings)[:1500]}"
+                else:
+                    active_controls = []
+                    if 'selected_ucs' in locals() or 'selected_ucs' in globals():
+                        active_controls = selected_ucs
+                    else:
+                        active_controls = USE_CASES
+                    controls_str = "\n".join([f"- [{u['standard']}] {u['label']} (Expected evidence: {u['expected']})" for u in active_controls])
+                    sys += f"\n\nTARGET COMPLIANCE CONTROLS TO AUDIT IN REAL-TIME:\n{controls_str}\n\nINSTRUCTION: Analyze the EVIDENCE against these target controls and perform the audit in real-time, explaining which gaps are resolved and which controls remain outstanding."
+                
+                resolved_list = st.session_state.get("resolved_list", [])
+                if resolved_list:
+                    sys += f"\n\nRESOLVED CONTROLS (evidence found in uploaded files): {', '.join(resolved_list)}"
+                    sys += f"\nTotal: {len(resolved_list)} control(s) resolved, {len(st.session_state.findings)} gap(s) still open."
+            
             placeholder = st.empty()
             stop_placeholder = st.empty()
-            stop_placeholder.button("⏹️ Stop Generation", key="stop_btn")
+            label_html = f"<div style='font-size:11px;color:#3b82f6;font-weight:600;margin-top:8px;margin-left:2px'>🤖 AI Auditor ({ai_model.split(' ')[0]})</div>"
+            placeholder.markdown(f"{label_html}<div style='display:flex;justify-content:flex-start;width:100%'><div class='chat-bubble-bot'><div class='inline-spinner'></div></div></div>", unsafe_allow_html=True)
+            
+            # Show a premium floating ChatGPT-style stop button centered above the input bar
+            with stop_placeholder.container():
+                st.markdown("""
+                <style>
+                /* Target the specific stop button inside our placeholder container */
+                div[data-testid="stVerticalBlock"] div.stButton > button {
+                    background-color: #0f172a !important;
+                    color: #cbd5e1 !important;
+                    border: 1px solid #334155 !important;
+                    border-radius: 9999px !important;
+                    padding: 8px 20px !important;
+                    font-size: 0.85rem !important;
+                    font-weight: 600 !important;
+                    display: flex !important;
+                    align-items: center !important;
+                    justify-content: center !important;
+                    gap: 8px !important;
+                    margin: 0 auto 12px auto !important;
+                    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3) !important;
+                    transition: all 0.2s ease !important;
+                }
+                div[data-testid="stVerticalBlock"] div.stButton > button:hover {
+                    background-color: #ef4444 !important;
+                    border-color: #ef4444 !important;
+                    color: #ffffff !important;
+                    box-shadow: 0 4px 20px rgba(239, 68, 68, 0.4) !important;
+                    transform: translateY(-1px);
+                }
+                </style>
+                """, unsafe_allow_html=True)
+                st.button("■  Stop Generating", key="pause_stream_btn", use_container_width=False)
+            
             full_ans = ""
-            last_save = time.time()
+            last_ui_update = 0.0
             for chunk in ai_chat_stream(sys, user_msg, ai_model):
                 full_ans += chunk
-                placeholder.markdown(f"<div class='chat-bubble-bot'>{full_ans}▌</div>", unsafe_allow_html=True)
-                if time.time() - last_save > 0.4:
-                    update_latest_assistant_message(st.session_state.active_chat_id, full_ans)
-                    last_save = time.time()
-            placeholder.markdown(f"<div class='chat-bubble-bot'>{full_ans}</div>", unsafe_allow_html=True)
+                st.session_state["temp_stream_ans"] = full_ans
+                now = time.time()
+                if now - last_ui_update > 0.05:
+                    placeholder.markdown(f"{label_html}<div style='display:flex;justify-content:flex-start;width:100%'><div class='chat-bubble-bot'>{full_ans}▌</div></div>", unsafe_allow_html=True)
+                    last_ui_update = now
+            
+            # Clear temp answer and remove pause button on normal completion
+            if "temp_stream_ans" in st.session_state:
+                del st.session_state.temp_stream_ans
             stop_placeholder.empty()
+            
+            if not full_ans.strip():
+                full_ans = "⚠️ The local AI engine did not return a response. Please verify that the Ollama service is active on your host machine and that your Llama model is fully downloaded (run `.\pull_models.bat` to verify)."
+            
+            placeholder.markdown(f"{label_html}<div style='display:flex;justify-content:flex-start;width:100%'><div class='chat-bubble-bot'>{full_ans}</div></div>", unsafe_allow_html=True)
+            st.session_state.chat.append({"role": "assistant", "content": full_ans})
             update_latest_assistant_message(st.session_state.active_chat_id, full_ans)
             st.rerun()
 
@@ -1373,7 +1498,7 @@ with st.container():
                 clear_chat_session(st.session_state.active_chat_id)
                 st.rerun()
 
-    with tab3:
+    with tab_records:
         st.markdown(f"#### 🗄️ Audit Records  ·  <small style='color:#64748b'>{db_label}</small>", unsafe_allow_html=True)
         rows = get_all_findings()
         if rows:
