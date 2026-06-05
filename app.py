@@ -972,9 +972,6 @@ st.session_state._last_loaded_chat_id = st.session_state.active_chat_id
 
 uc = USE_CASES[st.session_state.sel_uc]
 
-# ── MAIN CONTENT PLACEHOLDER ──────────────────────────────────────────────────
-scope_detection_placeholder = st.empty()
-
 # ── SIDEBAR ───────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("## 🛡️ AICyberAuditBox")
@@ -1245,6 +1242,8 @@ with st.sidebar:
             
             # RUN AUTO SCOPE DETECTION ON COMBINED CONTEXT
             if st.session_state.context and st.session_state.scoping_mode == "Automatic AI Scoping":
+                # Placeholder lives inside the sidebar — spinner renders correctly here
+                scope_detection_placeholder = st.empty()
                 with scope_detection_placeholder.container():
                     st.markdown("""
                     <div style='background:rgba(59,130,246,0.1); border:1px solid #3b82f6; border-radius:8px; padding:12px 16px; margin-bottom:16px; display:flex; align-items:center; gap:12px;'>
