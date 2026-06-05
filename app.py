@@ -358,7 +358,49 @@ def get_resumable_checkpoint(session_id):
 
 def extract_text(f):
     name_lower = f.name.lower()
-    
+
+    # ── ZIP / Folder Upload ─────────────────────────────────────────────────
+    if name_lower.endswith(".zip"):
+        import zipfile, io as _io
+        SUPPORTED_EXTS = (
+            ".pdf", ".docx", ".doc", ".xlsx", ".xls",
+            ".csv", ".pptx", ".ppt", ".txt",
+            ".png", ".jpg", ".jpeg"
+        )
+        combined_texts = []
+        try:
+            with zipfile.ZipFile(_io.BytesIO(f.read())) as zf:
+                # Sort so parent dirs are processed before children
+                entries = sorted(zf.namelist())
+                for entry in entries:
+                    # Skip directories, hidden files, macOS metadata
+                    if entry.endswith("/") or "__MACOSX" in entry or entry.startswith("."):
+                        continue
+                    entry_lower = entry.lower()
+                    if not any(entry_lower.endswith(ext) for ext in SUPPORTED_EXTS):
+                        continue   # skip unsupported file types silently
+                    try:
+                        with zf.open(entry) as inner_file:
+                            inner_bytes = inner_file.read()
+                        inner_f = _io.BytesIO(inner_bytes)
+                        # Give it a .name attribute so extract_text sub-calls work
+                        inner_f.name = entry.split("/")[-1]  # use basename
+                        inner_text = extract_text(inner_f)
+                        if inner_text and not inner_text.startswith("[Error"):
+                            combined_texts.append(f"--- FILE IN ZIP: {entry} ---\n{inner_text}")
+                        elif inner_text.startswith("[Error"):
+                            combined_texts.append(f"--- FILE IN ZIP: {entry} ---\n{inner_text}")
+                    except Exception as ie:
+                        combined_texts.append(f"--- FILE IN ZIP: {entry} ---\n[Error reading {entry}: {ie}]")
+            if combined_texts:
+                return "\n\n".join(combined_texts)
+            return "[ZIP file appears empty or contains no supported document types.]"
+        except zipfile.BadZipFile:
+            return f"[Error: {f.name} is not a valid ZIP file.]"
+        except Exception as e:
+            return f"[Error extracting ZIP {f.name}: {e}]"
+
+    # ── Image files (PNG / JPG / JPEG) ──────────────────────────────────────
     if name_lower.endswith((".png", ".jpg", ".jpeg")):
         try:
             reader = get_ocr_reader()
@@ -368,7 +410,7 @@ def extract_text(f):
             return " ".join(res)
         except Exception as e:
             return f"[Error parsing image file {f.name}: {e}]"
-            
+
     elif name_lower.endswith(".pdf"):
         with pdfplumber.open(f) as pdf:
             pages_text = []
@@ -1165,12 +1207,22 @@ with st.sidebar:
         st.session_state.file_registry = {}
 
     st.markdown("**Upload Evidence**")
+    st.markdown(
+        "<small style='color:#64748b;'>Supports: PDF, Word, Excel, CSV, PowerPoint, TXT, PNG, JPG/JPEG &nbsp;·&nbsp; "
+        "<b style='color:#60a5fa;'>📁 Upload a folder?</b> Zip it first, then upload the .zip file.</small>",
+        unsafe_allow_html=True
+    )
     if st.session_state.user_role == "auditor":
         st.info("👁️ View-only access. You cannot upload evidence.")
         uploaded = []
     else:
-        uploaded = st.file_uploader("Upload evidence document(s)", type=["pdf","docx","doc","xlsx","xls","csv","pptx","ppt","txt", "png", "jpg", "jpeg"],
-                                    accept_multiple_files=True, label_visibility="collapsed")
+        uploaded = st.file_uploader(
+            "Upload evidence document(s) or a zipped folder",
+            type=["pdf","docx","doc","xlsx","xls","csv","pptx","ppt","txt",
+                  "png","jpg","jpeg","zip"],
+            accept_multiple_files=True,
+            label_visibility="collapsed"
+        )
     
     if uploaded:
         new_files_added = False
