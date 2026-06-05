@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 logging.basicConfig(level=logging.INFO, format='%(message)s')
 
 from docx import Document
-from database import engine, db_label, AuditFinding, ChatMessage, SessionLocal
+from database import engine, db_label, AuditFinding, ChatMessage, AuditCheckpoint, SessionLocal
 from auth import render_login_gate
 import scoping_engine
 import easyocr
@@ -281,6 +281,81 @@ def clear_chat_session(session_id):
     db.commit()
     db.close()
 
+# ── CHECKPOINT HELPERS ────────────────────────────────────────────────────────
+def _checkpoint_create(session_id, bg_key, ai_model, selected_sls, file_names, context_str, total_controls, batch_size):
+    """Create a fresh in-progress checkpoint row when an audit starts."""
+    db = SessionLocal()
+    try:
+        # Remove any stale checkpoint for this session
+        db.query(AuditCheckpoint).filter(AuditCheckpoint.session_id == session_id).delete()
+        chk = AuditCheckpoint(
+            session_id=session_id,
+            bg_key=bg_key,
+            ai_model=ai_model,
+            selected_sls_json=json.dumps(list(selected_sls)),
+            file_names_json=json.dumps(file_names),
+            context_text=context_str,
+            total_controls=total_controls,
+            completed_batches=0,
+            batch_size=batch_size,
+            partial_results_json="[]",
+            status="in_progress",
+        )
+        db.add(chk)
+        db.commit()
+        return chk.id
+    except Exception as e:
+        print(f"[checkpoint] Failed to create checkpoint: {e}")
+        return None
+    finally:
+        db.close()
+
+def _checkpoint_update(session_id, completed_batches, all_results_so_far):
+    """Persist partial results after each batch completes."""
+    db = SessionLocal()
+    try:
+        chk = db.query(AuditCheckpoint).filter(
+            AuditCheckpoint.session_id == session_id,
+            AuditCheckpoint.status == "in_progress"
+        ).first()
+        if chk:
+            chk.completed_batches = completed_batches
+            chk.partial_results_json = json.dumps(all_results_so_far)
+            chk.updated_at = datetime.utcnow()
+            db.commit()
+    except Exception as e:
+        print(f"[checkpoint] Failed to update checkpoint: {e}")
+    finally:
+        db.close()
+
+def _checkpoint_finish(session_id, status="completed"):
+    """Mark the checkpoint as completed or failed."""
+    db = SessionLocal()
+    try:
+        chk = db.query(AuditCheckpoint).filter(
+            AuditCheckpoint.session_id == session_id,
+            AuditCheckpoint.status == "in_progress"
+        ).first()
+        if chk:
+            chk.status = status
+            chk.updated_at = datetime.utcnow()
+            db.commit()
+    except Exception as e:
+        print(f"[checkpoint] Failed to finish checkpoint: {e}")
+    finally:
+        db.close()
+
+def get_resumable_checkpoint(session_id):
+    """Return an in-progress checkpoint for this session, or None."""
+    db = SessionLocal()
+    try:
+        return db.query(AuditCheckpoint).filter(
+            AuditCheckpoint.session_id == session_id,
+            AuditCheckpoint.status == "in_progress"
+        ).order_by(AuditCheckpoint.created_at.desc()).first()
+    finally:
+        db.close()
+
 def extract_text(f):
     name_lower = f.name.lower()
     
@@ -508,13 +583,16 @@ Return ONLY valid JSON — no markdown, no extra text:
     return None
 
 
-def generate_ollama_findings(context, file_names_list, selected_sls, model_choice, bg_key=None, batch_size=10):
+def generate_ollama_findings(context, file_names_list, selected_sls, model_choice, bg_key=None, batch_size=10, checkpoint_session_id=None):
     """Audit controls in batches and return (resolved_list, findings).
 
     Uses the ISO 27001 Lead Auditor logic:
       Compliant       -> resolved_list
       Out Of Scope    -> skipped (not a finding)
       Partially Compliant / Non-Compliant -> findings
+
+    If checkpoint_session_id is set, partial results are saved to ShaktiDB
+    after every batch so the audit can be resumed after a crash.
     """
     ollama_model = _resolve_ollama_model(model_choice)
     controls = _build_controls_for_audit(selected_sls)
@@ -623,6 +701,10 @@ def generate_ollama_findings(context, file_names_list, selected_sls, model_choic
         batch_elapsed = time.time() - batch_start_time
         print(f"[{time.strftime('%H:%M:%S')}]   [SUCCESS] Batch {batch_idx + 1} completed in {batch_elapsed:.2f}s")
 
+        # ── Persist checkpoint after every batch ───────────────────────────────
+        if checkpoint_session_id:
+            _checkpoint_update(checkpoint_session_id, batch_idx + 1, all_results)
+
     overall_elapsed = time.time() - overall_start_time
     print(f"[{time.strftime('%H:%M:%S')}] [SUCCESS] ISO 27001 Audit complete! Total time: {overall_elapsed:.2f} seconds.")
 
@@ -665,9 +747,10 @@ def ai_chat_stream(system_ctx, user_msg, model_choice):
     except Exception as e:
         yield f"⚠️ Offline Engine not responding: {e}"
 
-def _run_ollama_bg(bg_key, files_data, selected_sls_copy, ai_model):
+def _run_ollama_bg(bg_key, files_data, selected_sls_copy, ai_model, session_id=None):
     import io
     print(f"[_run_ollama_bg] Starting thread for key {bg_key} with model {ai_model}...")
+    _sid = session_id or bg_key   # use session_id for checkpoint keying
     try:
         with _bg_lock:
             _bg_store["progress"][bg_key] = "🔍 Scanning file security..."
@@ -684,21 +767,34 @@ def _run_ollama_bg(bg_key, files_data, selected_sls_copy, ai_model):
                 with _bg_lock:
                     _bg_results[bg_key] = {"error": f"🚨 SECURITY ALERT: '{name}' BLOCKED! {reason}"}
                     _bg_store["progress"].pop(bg_key, None)
+                _checkpoint_finish(_sid, "failed")
                 return
             text = extract_text(f_like)
             ctx += f"--- FILE: {name} ---\n{text}\n\n"
             file_names_list.append(name)
         context_str = ctx.strip()
-        
+
+        # ── Create checkpoint so we can resume if the process crashes ─────────
+        from controls_data import USE_CASES as _UC
+        _total_ctrl_count = len([u for u in _UC if u["sl"] in selected_sls_copy])
+        _batch_sz = 10
+        _checkpoint_create(
+            _sid, bg_key, ai_model,
+            selected_sls_copy, file_names_list, context_str,
+            _total_ctrl_count, _batch_sz
+        )
+        print(f"[checkpoint] Created checkpoint for session {_sid}")
+
         if ai_model == "Escalation Mode (Qwen 3B -> 7B) - High Accuracy/Reasoning":
             # Pass 1: fast scan with 3B
             with _bg_lock:
                 _bg_store["progress"][bg_key] = "⚡ Pass 1/2 — Qwen 2.5 (3B) fast-pass scan..."
             resolved_1, findings_1 = generate_ollama_findings(
                 context_str, file_names_list, selected_sls_copy,
-                "Qwen 2.5 (3B) - Light Auditor", bg_key=bg_key
+                "Qwen 2.5 (3B) - Light Auditor", bg_key=bg_key,
+                checkpoint_session_id=_sid
             )
-                
+
             if findings_1:
                 # Identify unresolved sl numbers for escalation
                 unresolved_sls = set()
@@ -713,7 +809,8 @@ def _run_ollama_bg(bg_key, files_data, selected_sls_copy, ai_model):
                     _bg_store["progress"][bg_key] = f"🚀 Pass 2/2 — Escalating {len(unresolved_sls)} gaps to Qwen 2.5 (7B)..."
                 resolved_2, findings_2 = generate_ollama_findings(
                     context_str, file_names_list, unresolved_sls,
-                    "Qwen 2.5 (7B) - High Performance Auditor/Reasoning", bg_key=bg_key
+                    "Qwen 2.5 (7B) - High Performance Auditor/Reasoning", bg_key=bg_key,
+                    checkpoint_session_id=_sid
                 )
                 resolved_combined = list(set(resolved_1 + resolved_2))
                 findings_combined = findings_2
@@ -724,9 +821,10 @@ def _run_ollama_bg(bg_key, files_data, selected_sls_copy, ai_model):
             with _bg_lock:
                 _bg_store["progress"][bg_key] = f"🤖 Scanning controls with {ai_model.split(' - ')[0]}..."
             resolved_combined, findings_combined = generate_ollama_findings(
-                context_str, file_names_list, selected_sls_copy, ai_model, bg_key=bg_key
+                context_str, file_names_list, selected_sls_copy, ai_model, bg_key=bg_key,
+                checkpoint_session_id=_sid
             )
-            
+
         print(f"[_run_ollama_bg] Success! resolved: {len(resolved_combined)}, findings: {len(findings_combined)}")
         resolved_mapping = {}
         for ctrl in resolved_combined:
@@ -743,10 +841,13 @@ def _run_ollama_bg(bg_key, files_data, selected_sls_copy, ai_model):
                 "resolved_controls": set(resolved_mapping.keys()),
                 "context": context_str
             }
+        _checkpoint_finish(_sid, "completed")
+        print(f"[checkpoint] Checkpoint marked complete for session {_sid}")
     except Exception as e:
         print(f"[_run_ollama_bg] Exception raised in background thread: {str(e)}")
         with _bg_lock:
             _bg_results[bg_key] = {"error": f"Error contacting Ollama: {str(e)}. Ensure Ollama is active and the selected model is pulled."}
+        _checkpoint_finish(_sid, "failed")
     finally:
         print(f"[_run_ollama_bg] Thread finished. Discarding running key {bg_key}.")
         with _bg_lock:
@@ -1227,6 +1328,7 @@ if run:
         thread = threading.Thread(
             target=_run_ollama_bg,
             args=(bg_key, files_data, set(selected_sls), ai_model),
+            kwargs={"session_id": st.session_state.active_chat_id},
             daemon=True
         )
         thread.start()
@@ -1247,6 +1349,129 @@ st.markdown(f"""
     </div>
   </div>
 </div>""", unsafe_allow_html=True)
+
+# ── RESUME INTERRUPTED AUDIT BANNER ───────────────────────────────────────────────
+_resumable = get_resumable_checkpoint(st.session_state.active_chat_id)
+if _resumable and st.session_state.active_chat_id not in _bg_running:
+    _done  = _resumable.completed_batches
+    _total_b = (_resumable.total_controls + _resumable.batch_size - 1) // max(_resumable.batch_size, 1)
+    _pct   = int((_done / max(_total_b, 1)) * 100)
+    _saved = len(json.loads(_resumable.partial_results_json or "[]"))
+
+    st.markdown(f"""
+    <div style='background:linear-gradient(135deg,#1a2a1a,#0f1a0f);border:1px solid #22c55e;
+                border-left:5px solid #22c55e;border-radius:12px;padding:16px 20px;margin-bottom:20px;
+                display:flex;align-items:center;gap:16px;'>
+      <div style='font-size:2rem'>⚡</div>
+      <div style='flex:1'>
+        <div style='color:#22c55e;font-weight:700;font-size:1rem;margin-bottom:4px'>
+          Interrupted Audit Detected — Ready to Resume
+        </div>
+        <div style='color:#86efac;font-size:0.82rem'>
+          💾 <b>{_saved} control results</b> saved across <b>{_done}/{_total_b} batches</b> ({_pct}% complete)
+          &nbsp;&middot;&nbsp; Model: <b>{_resumable.ai_model.split(' - ')[0]}</b>
+          &nbsp;&middot;&nbsp; Evidence: <b>{', '.join(json.loads(_resumable.file_names_json or '[]'))}</b>
+        </div>
+        <div style='margin-top:8px;background:#0a1a0a;border-radius:6px;height:6px;overflow:hidden;'>
+          <div style='background:#22c55e;height:100%;width:{_pct}%;transition:width 0.3s'></div>
+        </div>
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    _col_res, _col_dis = st.columns([2, 1])
+    if _col_res.button("⚡ Resume Interrupted Audit", type="primary", use_container_width=True, key="resume_btn"):
+        # Reload partial results into session state immediately
+        _partial = json.loads(_resumable.partial_results_json or "[]")
+        for _r in _partial:
+            _r.setdefault("status",        "Non-Compliant")
+            _r.setdefault("display_status", "Open")
+            _r.setdefault("comment",       "")
+            _r.setdefault("editing",       False)
+
+        # Determine which SLs are still pending
+        _done_ctrl_ids = {_r.get("control_id", "") for _r in _partial}
+        _all_sls       = set(json.loads(_resumable.selected_sls_json or "[]"))
+        _pending_sls   = set()
+        for _uc in USE_CASES:
+            if _uc["sl"] in _all_sls and _uc["use_case"] not in _done_ctrl_ids:
+                _pending_sls.add(_uc["sl"])
+
+        if not _pending_sls:
+            # All batches were actually saved — just finalise
+            _resolved = [_r["control_id"] for _r in _partial if _r.get("status") == "Compliant"]
+            _findings  = [_r for _r in _partial if _r.get("status") in ("Partially Compliant", "Non-Compliant")]
+            st.session_state.findings      = _findings
+            st.session_state.resolved_list = _resolved
+            st.session_state["resolved_count"]    = len(_resolved)
+            st.session_state["resolved_controls"] = set(_resolved)
+            st.session_state.stage         = 5
+            _checkpoint_finish(st.session_state.active_chat_id, "completed")
+            st.toast("✅ Audit fully restored from checkpoint!")
+            st.rerun()
+        else:
+            # Spawn background thread to finish remaining batches
+            _file_names = json.loads(_resumable.file_names_json or "[]")
+            _resume_bg_key = st.session_state.active_chat_id
+            with _bg_lock:
+                _bg_running.add(_resume_bg_key)
+
+            st.session_state.stage         = 5
+            st.session_state.findings      = [_r for _r in _partial if _r.get("status") in ("Partially Compliant", "Non-Compliant")]
+            st.session_state.resolved_list = [_r["control_id"] for _r in _partial if _r.get("status") == "Compliant"]
+            st.session_state["resolved_count"]    = len(st.session_state.resolved_list)
+            st.session_state["resolved_controls"] = set(st.session_state.resolved_list)
+            st.session_state["ollama_error"]       = None
+            st.session_state.context       = _resumable.context_text or ""
+
+            def _resume_thread(bg_key, pending_sls, context_str, file_names, model, session_id, prior_results):
+                try:
+                    with _bg_lock:
+                        _bg_store["progress"][bg_key] = f"⚡ Resuming from batch {_done + 1}/{_total_b}..."
+                    new_resolved, new_findings = generate_ollama_findings(
+                        context_str, file_names, pending_sls, model,
+                        bg_key=bg_key, checkpoint_session_id=session_id
+                    )
+                    # Merge with prior results
+                    prior_resolved = [r["control_id"] for r in prior_results if r.get("status") == "Compliant"]
+                    prior_findings = [r for r in prior_results if r.get("status") in ("Partially Compliant", "Non-Compliant")]
+                    all_resolved   = list(set(prior_resolved + new_resolved))
+                    all_findings   = prior_findings + new_findings
+                    for ff in all_findings:
+                        ff.setdefault("status",        "Non-Compliant")
+                        ff.setdefault("display_status", "Open")
+                        ff.setdefault("comment",       "")
+                        ff.setdefault("editing",       False)
+                    with _bg_lock:
+                        _bg_results[bg_key] = {
+                            "findings":          all_findings,
+                            "resolved_list":      all_resolved,
+                            "resolved_count":     len(all_resolved),
+                            "resolved_controls":  set(all_resolved),
+                            "context":            context_str,
+                        }
+                    _checkpoint_finish(session_id, "completed")
+                except Exception as ex:
+                    with _bg_lock:
+                        _bg_results[bg_key] = {"error": str(ex)}
+                    _checkpoint_finish(session_id, "failed")
+                finally:
+                    with _bg_lock:
+                        _bg_running.discard(bg_key)
+                        _bg_store["progress"].pop(bg_key, None)
+
+            threading.Thread(
+                target=_resume_thread,
+                args=(_resume_bg_key, _pending_sls, _resumable.context_text or "",
+                      _file_names, _resumable.ai_model, st.session_state.active_chat_id, _partial),
+                daemon=True
+            ).start()
+            st.toast(f"⚡ Resuming audit — {len(_pending_sls)} controls remaining...")
+            st.rerun()
+
+    if _col_dis.button("🗑️ Discard", use_container_width=True, key="discard_checkpoint_btn"):
+        _checkpoint_finish(st.session_state.active_chat_id, "failed")
+        st.rerun()
 
 @st.fragment(run_every=timedelta(seconds=3))
 def _check_bg_analysis():
