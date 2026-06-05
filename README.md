@@ -1,49 +1,86 @@
-# AICyberAuditBox: Plug. Deploy. Audit. (Q2 2026)
+# 🛡️ AICyberAuditBox — Local Audit
 
-## Overview
-The **AICyberAuditBox** is a next-generation, RAG-powered AI tool designed for Cybersecurity Audits and Assessments. It provides a completely private, offline, and secure pipeline for analyzing sensitive audit evidence.
-
-## Architecture
-- **Intelligence Engine**: Local Ollama (Llama 3.2 1B & 3B / Llama 3.1 8B / Gemma 2 2B / Qwen 2.5 0.5B, 1.5B, 3B, & 7B)
-- **Database Engine**: ShaktiDB (Built on PostgreSQL 17.7) - Hosted in an isolated Linux environment.
-- **Frontend Dashboard**: Streamlit (Python 3.14+)
-
-## Pipeline Stages
-1. **Ingest & Parse**: Multi-format input handling (PDF, Word, Scanned OCR).
-2. **Chunk & Embed**: 1,500-dimensional vector transformation.
-3. **Semantic Mapping**: Matching compliance controls (ISO 27001, SOC 2, NIST, GDPR) to evidence.
-4. **Gap Detection**: Cross-source assurance and contradiction analysis.
-5. **Actionable Reports**: Severity-ranked findings persisted to ShaktiDB.
-
-## Quick Start (Handover Instructions)
-
-### Step 1: Initialize the Isolated Environment (ShaktiDB)
-- Import the provided `AICyberAuditBox_Server.ova` into VirtualBox/VMware.
-- Start the VM and ensure ShaktiDB is active.
-
-### Step 2: Initialize the Dashboard
-- Open a terminal in the project directory.
-- Run the installer/launcher:
-  ```powershell
-  .\run_demo.bat
-  ```
-
-### Step 3: Local AI Integration
-- Ensure **Ollama** is running on the host machine.
-- Pull the required models: run `.\pull_models.bat` to download the supported Llama, Gemma 2, and Qwen 2.5 models.
-
-## Troubleshooting (Auto-Local Feature)
-If the primary ShaktiDB server (VM) is not reachable, the AICyberAuditBox will automatically switch to **Local SQLite Storage** (`shakthidb_local.db`) to ensure zero-downtime during presentations.
+> **Agentic RAG · ISO 27001 Compliance Audit Intelligence**  
+> Powered by Ollama (offline LLM) · ShaktiDB (PostgreSQL) · Streamlit
 
 ---
 
-## .\run_demo.bat
+## Features
 
-## docker-compose up -d
-## .\pull_models.bat
-## ## Ran docker rm -f shakthidb_service to remove the conflicting container.
+### 🔍 AI-Powered ISO 27001 Auditing
+- **Senior Lead Auditor logic** — relevance scoring, semantic evidence evaluation, no blind control checking
+- **4-State Compliance**: Compliant · Partially Compliant · Non-Compliant · Out Of Scope
+- **P1–P4 Severity Scale**: P1 Critical → P2 High → P3 Medium → P4 Low
+- False positive & false negative prevention built into the LLM prompt
 
-## docker-compose up -d to create and launch the fresh ShaktiDB instance successfully.
+### 📁 Evidence Upload
+| Format | Support |
+|---|---|
+| PDF | ✅ Native text + OCR for scanned pages |
+| Word (.docx/.doc) | ✅ |
+| Excel (.xlsx/.xls) | ✅ All sheets |
+| CSV | ✅ |
+| PowerPoint (.pptx/.ppt) | ✅ All slides |
+| Plain Text (.txt) | ✅ |
+| PNG / JPG / JPEG | ✅ OCR (EasyOCR) |
+| **ZIP (folder upload)** | ✅ Recursively extracts all supported files |
 
+> **Folder upload:** Zip your folder → upload the `.zip` file. All files inside are automatically extracted, processed and combined as evidence.
 
-## python -m py_compile app.py
+### ⚡ Crash-Resilient Checkpointing
+If the app crashes or shuts down mid-audit:
+1. Progress is saved to ShaktiDB after **every batch** (~10 controls)
+2. On restart, a **"Resume Interrupted Audit"** banner appears automatically
+3. One click resumes from the last completed batch — prior results are preserved and merged
+
+### 📊 Audit Report
+- Interactive finding cards with Relevance Score, Evidence Found badge, Evidence Snippet, Compliance Status, Auditor Reasoning
+- Severity filter cards (P1/P2/P3/P4 + Compliant)
+- Accept / Modify / Delete / Auditor Notes per finding
+- Export full CSV: Control ID · Relevance Score · Evidence Found · Evidence Snippet · Compliance Status · Severity · Finding · Recommendation · Reasoning
+
+### 🗄️ Database
+- **Primary**: ShaktiDB (PostgreSQL on `localhost:15234`)  
+- **Auto-fallback**: Local SQLite (`shakthidb_local.db`) — zero-downtime during presentations
+
+---
+
+## Quick Start
+
+```bat
+.\run_demo.bat
+```
+
+Or manually:
+
+```bat
+docker-compose up -d
+streamlit run app.py
+```
+
+---
+
+## Architecture
+
+```
+app.py              — Main Streamlit application
+database.py         — SQLAlchemy ORM (AuditFinding, AuditCheckpoint, ChatMessage, User)
+auth.py             — Login gate / role management
+controls_data.py    — ISO 27001 control definitions
+scoping_engine.py   — Automatic document scope detection
+```
+
+---
+
+## Troubleshooting
+
+- **ShaktiDB not reachable?** App auto-switches to SQLite local DB.
+- **Ollama not running?** Start with `docker-compose up -d`, then pull models with `.\pull_models.bat`.
+- **Schema upgrade?** On first restart after an update, `audit_findings` and `audit_checkpoints` tables are automatically recreated.
+
+```bat
+## Useful commands
+docker-compose up -d
+.\pull_models.bat
+python -m py_compile app.py   # syntax check
+```

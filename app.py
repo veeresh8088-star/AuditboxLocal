@@ -1248,7 +1248,7 @@ with st.sidebar:
                 with scope_detection_placeholder.container():
                     st.markdown("""
                     <div style='background:rgba(59,130,246,0.1); border:1px solid #3b82f6; border-radius:8px; padding:12px 16px; margin-bottom:16px; display:flex; align-items:center; gap:12px;'>
-                      <style>.inline-spinner { border: 2px solid rgba(59, 130, 246, 0.1); border-top: 2px solid #3b82f6; border-radius: 50%; width: 16px; height: 16px; animation: spin_inline 1s linear infinite; } @keyframes spin_inline { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style>
+                      <style>.inline-spinner { border: 2px solid rgba(59,130,246,0.1); border-top: 2px solid #3b82f6; border-radius: 50%; width: 16px; height: 16px; animation: spin_inline 1s linear infinite; } @keyframes spin_inline { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style>
                       <div class='inline-spinner'></div>
                       <div style='color:#60a5fa; font-size:0.85rem; font-weight:600;'>🧠 AI is scanning document structure and automatically scoping controls...</div>
                     </div>
@@ -1279,7 +1279,25 @@ with st.sidebar:
     if st.session_state.get("file_registry"):
         st.markdown("<small style='color:#94a3b8;'>Scanned Files in Memory:</small>", unsafe_allow_html=True)
         for fname in st.session_state.file_registry.keys():
-            st.markdown(f"<div style='background:rgba(59,130,246,0.1); padding:4px 8px; border-radius:4px; font-size:0.8rem; color:#60a5fa; margin-bottom:4px;'>📄 {fname}</div>", unsafe_allow_html=True)
+            _fl = fname.lower()
+            if _fl.endswith(".zip"):
+                _icon, _clr, _suffix = "📁", "#a78bfa", " <span style='color:#94a3b8;font-size:0.72rem'>(folder/zip)</span>"
+            elif _fl.endswith((".png", ".jpg", ".jpeg")):
+                _icon, _clr, _suffix = "🖼️", "#34d399", ""
+            elif _fl.endswith(".pdf"):
+                _icon, _clr, _suffix = "📕", "#f87171", ""
+            elif _fl.endswith((".xlsx", ".xls", ".csv")):
+                _icon, _clr, _suffix = "📊", "#4ade80", ""
+            elif _fl.endswith((".pptx", ".ppt")):
+                _icon, _clr, _suffix = "📊", "#fb923c", ""
+            else:
+                _icon, _clr, _suffix = "📄", "#60a5fa", ""
+            st.markdown(
+                f"<div style='background:rgba(59,130,246,0.08);border-left:3px solid {_clr};"
+                f"padding:4px 10px;border-radius:4px;font-size:0.8rem;color:{_clr};margin-bottom:4px;'>"
+                f"{_icon} {fname}{_suffix}</div>",
+                unsafe_allow_html=True
+            )
 
     st.divider()
 
