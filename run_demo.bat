@@ -21,6 +21,7 @@ echo [2/3] Checking Database (ShaktiDB)...
 docker ps > nul 2>&1
 if %errorlevel% equ 0 (
     echo [v] OK: Docker is running. Starting ShaktiDB container...
+    docker rm -f shakthidb_service > nul 2>&1
     docker-compose up -d
 ) else (
     echo [i] NOTE: Docker Desktop not detected. 
