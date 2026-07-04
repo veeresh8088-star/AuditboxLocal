@@ -17,16 +17,8 @@ if %errorlevel% neq 0 (
 )
 
 echo.
-echo [2/3] Checking Database (ShaktiDB)...
-docker ps > nul 2>&1
-if %errorlevel% equ 0 (
-    echo [v] OK: Docker is running. Starting ShaktiDB container...
-    docker rm -f shakthidb_service > nul 2>&1
-    docker-compose up -d
-) else (
-    echo [i] NOTE: Docker Desktop not detected. 
-    echo     The system will automatically use 'shakthidb_local.db' ^(SQLite^).
-)
+echo [2/3] Configuring Database...
+echo [v] OK: Using SQLite local database (shakthidb_local.db).
 
 echo.
 echo [3/3] Launching Dashboard...

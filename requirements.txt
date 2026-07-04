@@ -12,3 +12,5 @@ anthropic
 openpyxl
 python-docx
 python-pptx
+pyotp
+qrcode
