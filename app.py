@@ -439,11 +439,8 @@ def _build_controls_for_audit(selected_sls):
 
 
 def _audit_batch(context, controls_batch, file_names_list, ollama_model, timeout=240):
-    """Send a single batch of controls to the LLM for structured ISO 27001 audit.
-
-    Returns a list of result dicts, one per control, each containing:
-      control_id, control, relevance_score, evidence_found, evidence_snippet,
-      status, severity, finding, recommendation, reasoning, source_files
+    """Send a single batch of controls to the LLM to determine compliance.
+    Returns a list of control ID strings that are satisfied (Compliant).
     """
     scanned_files_str = ", ".join(file_names_list) if file_names_list else "None"
 
@@ -457,42 +454,7 @@ def _audit_batch(context, controls_batch, file_names_list, ollama_model, timeout
         )
     controls_text = "\n".join(controls_desc)
 
-    prompt = f"""You are a Senior ISO 27001 Lead Auditor with 15+ years of experience.
-Perform an accurate compliance audit with minimal false positives and false negatives.
-
-AUDIT PRINCIPLES:
-1. Think like a human auditor — do NOT audit controls blindly.
-2. Use semantic understanding — do NOT require exact ISO wording.
-3. Search for direct, supporting, related, AND implied evidence.
-4. If evidence exists, do not mark Non-Compliant.
-5. Mark Partial Compliance when SOME evidence exists.
-6. Mark Out Of Scope when the control is NOT relevant to this document.
-7. Always explain your reasoning.
-
-SCOPING & RELEVANCE:
-- Calculate a relevance_score (0-100) for each control against this document.
-- Score >= 80: Audit fully.
-- Score 60-79: Audit only if evidence exists.
-- Score < 60: Mark Out Of Scope — do not force a finding.
-
-EVIDENCE EVALUATION:
-- Strong Evidence (direct, explicit): status = "Compliant"
-- Some Evidence (partial, implied): status = "Partially Compliant"
-- No Evidence (nothing found): status = "Non-Compliant"
-- Control not relevant to document: status = "Out Of Scope"
-
-SEVERITY (for Non-Compliant and Partially Compliant only):
-- P1 Critical: Major compliance gap
-- P2 High: Significant weakness
-- P3 Medium: Partial implementation
-- P4 Low: Minor documentation issue
-
-FALSE POSITIVE PREVENTION:
-- Never create findings solely because keywords are missing.
-- Use semantic reasoning — if a procedure exists under a different name, it still counts.
-
-FALSE NEGATIVE PREVENTION:
-- Search for: Direct Evidence, Supporting Evidence, Related Evidence, Implied Evidence.
+    prompt = f"""You are a strict Cybersecurity Auditor. Evaluate the extracted evidence text against these controls.
 
 EVIDENCE TEXT (from: {scanned_files_str}):
 \"\"\"
@@ -503,36 +465,13 @@ CONTROLS TO AUDIT:
 {controls_text}
 
 INSTRUCTIONS — follow EXACTLY:
-For EACH control, produce a JSON object with these fields:
-  - "control_id": the control ID string (e.g. "ISO-1215 Access Control")
-  - "control": human-readable control name (e.g. "Access Control")
-  - "relevance_score": integer 0-100
-  - "evidence_found": one of "Strong Evidence", "Some Evidence", "No Evidence", "Not Relevant"
-  - "evidence_snippet": a short direct quote or description of the evidence found (max 2 sentences). Empty string if none.
-  - "status": one of "Compliant", "Partially Compliant", "Non-Compliant", "Out Of Scope"
-  - "severity": "P1 Critical", "P2 High", "P3 Medium", or "P4 Low" (use "N/A" for Compliant or Out Of Scope)
-  - "finding": 2-4 sentence explanation of what was found or what is missing.
-  - "recommendation": specific actionable steps. Empty string if Compliant or Out Of Scope.
-  - "reasoning": 1-3 sentences explaining your audit reasoning and why you assigned this status.
-  - "source_files": "{scanned_files_str}"
+1. Determine if the EVIDENCE TEXT provides sufficient proof to satisfy each control.
+2. Return ONLY a JSON object containing a single array called \"resolved_list\" with the exact Control IDs of the controls that are fully satisfied by the evidence.
+3. Do NOT provide explanations. ONLY output valid JSON.
 
-Return ONLY valid JSON — no markdown, no extra text:
+Example format:
 {{
-  "results": [
-    {{
-      "control_id": "...",
-      "control": "...",
-      "relevance_score": 85,
-      "evidence_found": "Strong Evidence",
-      "evidence_snippet": "...",
-      "status": "Compliant",
-      "severity": "N/A",
-      "finding": "...",
-      "recommendation": "",
-      "reasoning": "...",
-      "source_files": "..."
-    }}
-  ]
+  \"resolved_list\": [\"ISO-1215 Access Control\"]
 }}
 """
     try:
@@ -544,9 +483,9 @@ Return ONLY valid JSON — no markdown, no extra text:
         if r.status_code == 200:
             res = r.json().get("response", "{}")
             data = json.loads(res)
-            results = data.get("results", [])
-            if isinstance(results, list):
-                return results
+            resolved_list = data.get("resolved_list", [])
+            if isinstance(resolved_list, list):
+                return resolved_list
     except Exception as e:
         print(f"[_audit_batch] LLM call error: {e}")
     return None
@@ -555,10 +494,9 @@ Return ONLY valid JSON — no markdown, no extra text:
 def generate_ollama_findings(context, file_names_list, selected_sls, model_choice, bg_key=None, batch_size=10):
     """Audit controls in batches and return (resolved_list, findings).
 
-    Uses the ISO 27001 Lead Auditor logic:
-      Compliant       -> resolved_list
-      Out Of Scope    -> skipped (not a finding)
-      Partially Compliant / Non-Compliant -> findings
+    Checks controls against evidence:
+      Resolved/Satisfied -> resolved_list
+      Unresolved         -> findings (using static mapping from USE_CASES)
     """
     ollama_model = _resolve_ollama_model(model_choice)
     controls = _build_controls_for_audit(selected_sls)
@@ -567,7 +505,8 @@ def generate_ollama_findings(context, file_names_list, selected_sls, model_choic
         return [], []
 
     scanned_files_str = ", ".join(file_names_list) if file_names_list else "None"
-    all_results = []
+    resolved_list = []
+    findings = []
     total = len(controls)
 
     # Split into batches
@@ -575,12 +514,7 @@ def generate_ollama_findings(context, file_names_list, selected_sls, model_choic
 
     import time
     overall_start_time = time.time()
-    print(f"\n[{time.strftime('%H:%M:%S')}] [INFO] Starting ISO 27001 Audit for {total} controls in {len(batches)} batches...")
-
-    # Valid severity values from the new prompt
-    VALID_SEVERITIES = ("P1 Critical", "P2 High", "P3 Medium", "P4 Low", "N/A")
-    # Map old uppercase values to new P-notation (for LLM fallback)
-    SEV_UPGRADE_MAP = {"CRITICAL": "P1 Critical", "HIGH": "P2 High", "MEDIUM": "P3 Medium", "LOW": "P4 Low"}
+    print(f"\n[{time.strftime('%H:%M:%S')}] [INFO] Starting Compliance Audit for {total} controls in {len(batches)} batches...")
 
     for batch_idx, batch in enumerate(batches):
         start_n = batch_idx * batch_size + 1
@@ -593,97 +527,34 @@ def generate_ollama_findings(context, file_names_list, selected_sls, model_choic
             with _bg_lock:
                 _bg_store["progress"][bg_key] = f"⚡ Auditing controls {start_n}–{end_n} of {total}..."
 
-        batch_results = _audit_batch(context, batch, file_names_list, ollama_model)
+        batch_resolved = _audit_batch(context, batch, file_names_list, ollama_model)
 
-        if batch_results is None:
-            # Fallback: treat all controls in this batch as Non-Compliant with generic findings
-            for c in batch:
-                all_results.append({
+        if batch_resolved is None:
+            batch_resolved = []
+
+        for c in batch:
+            if c["control"] in batch_resolved:
+                resolved_list.append(c["control"])
+            else:
+                findings.append({
                     "control_id": c["control"],
                     "control": c["label"],
-                    "relevance_score": 50,
-                    "evidence_found": "No Evidence",
-                    "evidence_snippet": "",
+                    "relevance_score": None,
+                    "evidence_found": None,
+                    "evidence_snippet": None,
                     "status": "Non-Compliant",
-                    "severity": SEV_UPGRADE_MAP.get(c.get("severity", "MEDIUM").upper(), "P3 Medium"),
-                    "finding": f"No documented evidence found for {c['control']} ({c['label']}). LLM batch call failed.",
-                    "recommendation": f"Establish, document, and implement procedures to satisfy {c['control']} ({c['label']}).",
-                    "reasoning": "Fallback result — LLM call failed for this batch.",
-                    "source_files": f"Checked in: {scanned_files_str}",
+                    "severity": c.get("severity", "MEDIUM").upper(),
+                    "finding": c.get("finding", f"No documented evidence found for {c['control']} ({c['label']})."),
+                    "recommendation": c.get("recommendation", f"Establish, document, and implement procedures to satisfy {c['control']} ({c['label']})."),
+                    "reasoning": None,
+                    "source_files": scanned_files_str,
                 })
-        else:
-            # Build lookup by control_id (primary) or control name (fallback)
-            returned_by_id   = {r.get("control_id", ""): r for r in batch_results}
-            returned_by_name = {r.get("control", ""):    r for r in batch_results}
-
-            for c in batch:
-                result = returned_by_id.get(c["control"]) or returned_by_name.get(c["label"])
-
-                if result:
-                    # Normalize status
-                    raw_status = result.get("status", "Non-Compliant")
-                    if raw_status not in ("Compliant", "Partially Compliant", "Non-Compliant", "Out Of Scope"):
-                        # Map old Resolved/Unresolved to new schema
-                        if raw_status == "Resolved":
-                            raw_status = "Compliant"
-                        elif raw_status == "Unresolved":
-                            raw_status = "Non-Compliant"
-                        else:
-                            raw_status = "Non-Compliant"
-                    result["status"] = raw_status
-
-                    # Normalize severity
-                    raw_sev = result.get("severity", "P3 Medium")
-                    if raw_sev.upper() in SEV_UPGRADE_MAP:
-                        raw_sev = SEV_UPGRADE_MAP[raw_sev.upper()]
-                    if raw_sev not in VALID_SEVERITIES:
-                        raw_sev = SEV_UPGRADE_MAP.get(c.get("severity", "MEDIUM").upper(), "P3 Medium")
-                    result["severity"] = raw_sev
-
-                    # Ensure all new fields are present
-                    result.setdefault("control_id",       c["control"])
-                    result.setdefault("control",          result.get("control", c["label"]))
-                    result.setdefault("relevance_score",  50)
-                    result.setdefault("evidence_found",   "No Evidence")
-                    result.setdefault("evidence_snippet", "")
-                    result.setdefault("reasoning",        "")
-                    result.setdefault("source_files",     scanned_files_str)
-                    all_results.append(result)
-                else:
-                    all_results.append({
-                        "control_id": c["control"],
-                        "control": c["label"],
-                        "relevance_score": 50,
-                        "evidence_found": "No Evidence",
-                        "evidence_snippet": "",
-                        "status": "Non-Compliant",
-                        "severity": SEV_UPGRADE_MAP.get(c.get("severity", "MEDIUM").upper(), "P3 Medium"),
-                        "finding": f"No documented evidence found for {c['control']} ({c['label']}).",
-                        "recommendation": f"Establish, document, and implement procedures to satisfy {c['control']} ({c['label']}).",
-                        "reasoning": "Control not returned by LLM. Defaulting to Non-Compliant.",
-                        "source_files": scanned_files_str,
-                    })
 
         batch_elapsed = time.time() - batch_start_time
         print(f"[{time.strftime('%H:%M:%S')}]   [SUCCESS] Batch {batch_idx + 1} completed in {batch_elapsed:.2f}s")
 
-
-
     overall_elapsed = time.time() - overall_start_time
-    print(f"[{time.strftime('%H:%M:%S')}] [SUCCESS] ISO 27001 Audit complete! Total time: {overall_elapsed:.2f} seconds.")
-
-    # Compliant  -> resolved list
-    # Out Of Scope -> excluded (not a finding, not resolved)
-    # Partially Compliant / Non-Compliant -> findings
-    resolved_list = [r["control_id"] for r in all_results if r.get("status") == "Compliant"]
-    findings = [
-        r for r in all_results
-        if r.get("status") in ("Partially Compliant", "Non-Compliant")
-    ]
-
-    oos_count = sum(1 for r in all_results if r.get("status") == "Out Of Scope")
-    if oos_count:
-        print(f"   [INFO] {oos_count} control(s) marked Out Of Scope — excluded from findings.")
+    print(f"[{time.strftime('%H:%M:%S')}] [SUCCESS] Compliance Audit complete! Total time: {overall_elapsed:.2f} seconds.")
 
     return resolved_list, findings
 
@@ -1408,9 +1279,9 @@ with st.container():
             findings = st.session_state.findings
             resolved_list = st.session_state.get("resolved_list", [])
             active_findings = [f for f in findings if f.get("status", "Open") not in ("Dismissed", "Compliant", "Out Of Scope")]
-            counts = {"P1 Critical": 0, "P2 High": 0, "P3 Medium": 0, "P4 Low": 0}
+            counts = {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0}
             for f in active_findings:
-                sev = f.get("severity", "P3 Medium")
+                sev = f.get("severity", "MEDIUM").upper()
                 if sev in counts:
                     counts[sev] += 1
 
@@ -1443,18 +1314,18 @@ with st.container():
                     st.rerun()
 
             c1, c2, c3, c4, c5 = st.columns(5)
-            _stat_card(c1, "#ef4444", counts['P1 Critical'], "P1 · Critical",   "P1 Critical", "flt_crit", "🔴")
-            _stat_card(c2, "#f97316", counts['P2 High'],    "P2 · High",        "P2 High",     "flt_high", "🟠")
-            _stat_card(c3, "#eab308", counts['P3 Medium'],  "P3 · Medium",      "P3 Medium",   "flt_med",  "🟡")
-            _stat_card(c4, "#22c55e", counts['P4 Low'],     "P4 · Low",         "P4 Low",      "flt_low",  "🟢")
-            _stat_card(c5, "#22c55e", len(resolved_list),   "✓ Compliant",      "RESOLVED",    "flt_res",  "✅")
+            _stat_card(c1, "#ef4444", counts['CRITICAL'], "Critical", "CRITICAL", "flt_crit", "🔴")
+            _stat_card(c2, "#f97316", counts['HIGH'],    "High", "HIGH",     "flt_high", "🟠")
+            _stat_card(c3, "#eab308", counts['MEDIUM'],  "Medium", "MEDIUM",   "flt_med",  "🟡")
+            _stat_card(c4, "#22c55e", counts['LOW'],     "Low", "LOW",      "flt_low",  "🟢")
+            _stat_card(c5, "#22c55e", len(resolved_list),   "Resolved", "RESOLVED",    "flt_res",  "✅")
 
-            _fc = {"P1 Critical":"#ef4444","P2 High":"#f97316","P3 Medium":"#eab308","P4 Low":"#22c55e","RESOLVED":"#22c55e"}
-            _fl = {"P1 Critical":"P1 · Critical","P2 High":"P2 · High","P3 Medium":"P3 · Medium","P4 Low":"P4 · Low","RESOLVED":"✓ Compliant"}
+            _fc = {"CRITICAL":"#ef4444","HIGH":"#f97316","MEDIUM":"#eab308","LOW":"#22c55e","RESOLVED":"#22c55e"}
+            _fl = {"CRITICAL":"Critical","HIGH":"High","MEDIUM":"Medium","LOW":"Low","RESOLVED":"✓ Resolved"}
             if sf:
                 tags_html = " ".join(
                     f"<span style='background:{_fc[v]}22;border:1px solid {_fc[v]};border-radius:12px;padding:2px 10px;color:{_fc[v]};font-weight:600;font-size:0.8rem'>{_fl[v]}</span>"
-                    for v in ["P1 Critical","P2 High","P3 Medium","P4 Low","RESOLVED"] if v in sf
+                    for v in ["CRITICAL","HIGH","MEDIUM","LOW","RESOLVED"] if v in sf
                 )
                 clear_note = "&nbsp;&middot;&nbsp; <i style='font-size:0.78rem'>Click an active card to deselect</i>"
                 st.markdown(f"""<div style='background:rgba(59,130,246,0.07);border:1px solid #3b82f6;border-radius:8px;padding:9px 16px;margin:10px 0;display:flex;align-items:center;gap:8px;flex-wrap:wrap;'>
@@ -1508,40 +1379,39 @@ with st.container():
             st.divider()
 
             SEVERITY_LABEL = {
-                "P1 Critical": "P1 · CRITICAL",
-                "P2 High":     "P2 · HIGH",
-                "P3 Medium":   "P3 · MEDIUM",
-                "P4 Low":      "P4 · LOW",
+                "CRITICAL": "CRITICAL",
+                "HIGH":     "HIGH",
+                "MEDIUM":   "MEDIUM",
+                "LOW":      "LOW",
             }
             CSS = {
-                "P1 Critical": "badge-critical",
-                "P2 High":     "badge-high",
-                "P3 Medium":   "badge-medium",
-                "P4 Low":      "badge-low",
+                "CRITICAL": "badge-critical",
+                "HIGH":     "badge-high",
+                "MEDIUM":   "badge-medium",
+                "LOW":      "badge-low",
             }
             EMJ = {
-                "P1 Critical": "🔴",
-                "P2 High":     "🟠",
-                "P3 Medium":   "🟡",
-                "P4 Low":      "🟢",
+                "CRITICAL": "🔴",
+                "HIGH":     "🟠",
+                "MEDIUM":   "🟡",
+                "LOW":      "🟢",
             }
-            SEV_ORDER = ["P1 Critical", "P2 High", "P3 Medium", "P4 Low"]
+            SEV_ORDER = ["CRITICAL", "HIGH", "MEDIUM", "LOW"]
 
             open_findings_sorted = sorted(
                 active_findings,
-                key=lambda x: SEV_ORDER.index(x.get("severity", "P3 Medium"))
-                    if x.get("severity", "P3 Medium") in SEV_ORDER else 3
+                key=lambda x: SEV_ORDER.index(x.get("severity", "MEDIUM").upper()) if x.get("severity", "MEDIUM").upper() in SEV_ORDER else 3
             )
 
             if sf and not open_sev_filters:
                 displayed_findings = []
             elif open_sev_filters:
-                displayed_findings = [f for f in open_findings_sorted if f.get("severity", "P3 Medium") in open_sev_filters]
+                displayed_findings = [f for f in open_findings_sorted if f.get("severity", "MEDIUM").upper() in open_sev_filters]
             else:
                 displayed_findings = open_findings_sorted
 
             for idx, f in enumerate(displayed_findings):
-                s = f.get("severity", "P3 Medium")
+                s = f.get("severity", "MEDIUM").upper()
                 label = SEVERITY_LABEL.get(s, s)
                 css   = CSS.get(s, "badge-medium")
                 emj   = EMJ.get(s, "🟡")
@@ -1576,8 +1446,10 @@ with st.container():
                         st.markdown("##### ✏️ Modify Finding Details")
                         col_edit_sev, col_edit_ctrl = st.columns([1, 2])
                         with col_edit_sev:
-                            sev_opts = ["P1 Critical", "P2 High", "P3 Medium", "P4 Low"]
-                            sev_index = sev_opts.index(s) if s in sev_opts else 2
+                            sev_opts = ["CRITICAL", "HIGH", "MEDIUM", "LOW"]
+                            # Normalize severity to uppercase matching options
+                            s_upper = s.upper()
+                            sev_index = sev_opts.index(s_upper) if s_upper in sev_opts else 2
                             new_sev = st.selectbox("Severity", sev_opts, index=sev_index, key=f"sev_edit_sel_{idx}")
                         with col_edit_ctrl:
                             new_ctrl = st.text_input("Control", value=f.get("control", ""), key=f"ctrl_edit_in_{idx}")
@@ -1603,24 +1475,17 @@ with st.container():
                                         orig_f["editing"] = False
                                 st.rerun()
                 else:
+                    status_color = "#3b82f6" if display_status == "Open" else "#22c55e"
                     st.markdown(f"""
                     <div class='{css}' style='margin-bottom:0px; border-bottom-left-radius:0px; border-bottom-right-radius:0px;'>
-                      <div style='display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;'>
+                      <div style='display:flex; justify-content:space-between; align-items:center;'>
                         <b>{emj} {label}</b>
-                        <div style='display:flex; gap:6px; align-items:center;'>
-                          <span style='font-size:0.72rem; background:{compliance_badge_color}33; border:1px solid {compliance_badge_color}; color:{compliance_badge_color}; padding:2px 9px; border-radius:12px; font-weight:700;'>{audit_status.upper()}</span>
-                          <span style='font-size:0.72rem; background:#1e293b; border:1px solid #334155; color:#94a3b8; padding:2px 9px; border-radius:12px; font-weight:600;'>Relevance: {relevance}/100</span>
-                        </div>
+                        <span style='font-size:0.75rem; background:{status_color}; color:white; padding:2px 8px; border-radius:12px; font-weight:600;'>{display_status.upper()}</span>
                       </div>
-                      <div style='font-size:0.8rem; color:#64748b; margin-bottom:4px;'><b>Control ID:</b> {control_id}</div>
-                      <div style='margin-top:4px; margin-bottom:8px;'><b>Control:</b> {f.get('control','')}</div>
-                      <div style='margin-bottom:4px;'>
-                        <span style='font-size:0.75rem; background:{ev_color}22; border:1px solid {ev_color}; color:{ev_color}; padding:2px 9px; border-radius:8px; font-weight:600;'>🔍 {ev_found}</span>
-                      </div>
-                      {'<div style="background:rgba(255,255,255,0.04); border-left:3px solid ' + ev_color + '; border-radius:4px; padding:8px 12px; margin:8px 0; font-size:0.82rem; color:#cbd5e1; font-style:italic;">💬 &ldquo;' + ev_snippet + '&rdquo;</div>' if ev_snippet else ''}
+                      <div style='margin-top:6px;'><b>Control ID:</b> {control_id}</div>
+                      <div><b>Control:</b> {f.get('control','')}</div>
                       <span style='color:#cbd5e1'>📌 <b>Finding:</b> {f.get('finding','')}</span><br>
                       <span style='color:#86efac'>→ <b>Recommendation:</b> {f.get('recommendation','')}</span>
-                      {'<div style="margin-top:8px; background:rgba(59,130,246,0.06); border-left:3px solid #3b82f6; border-radius:4px; padding:8px 12px; font-size:0.82rem; color:#93c5fd;"><b>🧠 Auditor Reasoning:</b> ' + reasoning + '</div>' if reasoning else ''}
                       <div style='margin-top:8px; font-size:0.8rem; color:#94a3b8; border-top:1px dashed #334155; padding-top:6px; display:flex; align-items:center; gap:6px;'>
                         <span>📁</span> <b>Source File Scope:</b> <i>{f.get('source_files','All uploaded documents')}</i>
                       </div>
@@ -1686,14 +1551,9 @@ with st.container():
                 df_export = pd.DataFrame([{
                     "Control ID":        f.get("control_id", ""),
                     "Control Name":      f.get("control", ""),
-                    "Relevance Score":   f.get("relevance_score", ""),
-                    "Evidence Found":    f.get("evidence_found", ""),
-                    "Evidence Snippet":  f.get("evidence_snippet", ""),
-                    "Compliance Status": f.get("status", ""),
                     "Severity":          f.get("severity", ""),
                     "Finding":           f.get("finding", ""),
                     "Recommendation":    f.get("recommendation", ""),
-                    "Reasoning":         f.get("reasoning", ""),
                     "Workflow Status":   f.get("display_status", "Open"),
                     "Source Scope":      f.get("source_files", "All uploaded documents"),
                     "Auditor Comment":   f.get("comment", "")

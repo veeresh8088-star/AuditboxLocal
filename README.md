@@ -8,10 +8,9 @@
 ## Features
 
 ### 🔍 AI-Powered ISO 27001 Auditing
-- **Senior Lead Auditor logic** — relevance scoring, semantic evidence evaluation, no blind control checking
-- **4-State Compliance**: Compliant · Partially Compliant · Non-Compliant · Out Of Scope
-- **P1–P4 Severity Scale**: P1 Critical → P2 High → P3 Medium → P4 Low
-- False positive & false negative prevention built into the LLM prompt
+- **Compliance checking** — automated evaluation of evidence text against controls
+- **Compliance Statuses**: Compliant, Non-Compliant
+- **Severity Scale**: Critical, High, Medium, Low
 
 ### 📁 Evidence Upload
 | Format | Support |
@@ -34,10 +33,10 @@ If the app crashes or shuts down mid-audit:
 3. One click resumes from the last completed batch — prior results are preserved and merged
 
 ### 📊 Audit Report
-- Interactive finding cards with Relevance Score, Evidence Found badge, Evidence Snippet, Compliance Status, Auditor Reasoning
-- Severity filter cards (P1/P2/P3/P4 + Compliant)
+- Interactive finding cards with Control ID, Control Name, Severity, Finding, Recommendation
+- Severity filter cards (Critical/High/Medium/Low + Resolved)
 - Accept / Modify / Delete / Auditor Notes per finding
-- Export full CSV: Control ID · Relevance Score · Evidence Found · Evidence Snippet · Compliance Status · Severity · Finding · Recommendation · Reasoning
+- Export full CSV with Control ID, Control Name, Severity, Finding, Recommendation, Workflow Status, Source Scope, Auditor Comment
 
 ### 🗄️ Database
 - **Primary**: ShaktiDB (PostgreSQL on `localhost:15234`)  
